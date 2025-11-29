@@ -1716,7 +1716,7 @@ def get_tokens():
             real_market_cap = current_price * total_supply
             
             tokens.append({
-                "asa_id": token_dict.get('asa_id') or token_dict.get('token_id') or 0,  # Use token_id if asa_id not available (Aptos tokens)
+                "asa_id": token_dict.get('asa_id', 0) if token_dict.get('asa_id') else 0,  # Keep asa_id as number (0 for Aptos tokens)
                 "token_id": token_dict.get('token_id', ''),  # Aptos FA metadata address or content_id
                 "creator": token_dict.get('creator', ''),
                 "creator_address": token_dict.get('creator', ''),
