@@ -5317,46 +5317,68 @@ def shelby_upload():
                     "error": f"Shelby upload failed: {result.stderr[:200]}"
                 }), 500
             
-            # Parse CLI output to extract blob ID/transaction hash
+            # Parse CLI output to extract transaction hash and account address
             # Shelby CLI outputs transaction hash in explorer link format
             output = result.stdout + result.stderr  # Check both
-            blob_id = None
-            blob_url = None
+            transaction_hash = None
+            account_address = None
             
-            # Try to extract blob ID from various output formats
+            # Try to extract transaction hash from Aptos Explorer link
             import re
             # Pattern 1: Transaction hash from Aptos Explorer link (most reliable)
             # Format: https://explorer.aptoslabs.com/txn/0x<64-char-hex>?network=shelbynet
             match = re.search(r'explorer\.aptoslabs\.com/txn/(0x[a-f0-9]{64})', output)
             if match:
-                blob_id = match.group(1)
-                blob_url = f"shelby://{blob_id}"
-                logger.info(f"Extracted transaction hash from explorer link: {blob_id}")
+                transaction_hash = match.group(1)
+                logger.info(f"Extracted transaction hash from explorer link: {transaction_hash}")
             else:
                 # Pattern 2: Any 64-character hex string (transaction hash)
                 match = re.search(r'(0x[a-f0-9]{64})', output)
                 if match:
-                    blob_id = match.group(1)
-                    blob_url = f"shelby://{blob_id}"
-                    logger.info(f"Extracted transaction hash: {blob_id}")
-                else:
-                    # Pattern 3: "shelby://<blob_id>"
-                    match = re.search(r'shelby://([^\s\n]+)', output)
-                    if match:
-                        blob_id = match.group(1)
-                        blob_url = f"shelby://{blob_id}"
-                    else:
-                        # Pattern 4: "Blob ID: <id>"
-                        match = re.search(r'[Bb]lob\s+[Ii][Dd]:\s*([^\s\n]+)', output)
-                        if match:
-                            blob_id = match.group(1)
-                            blob_url = f"shelby://{blob_id}"
+                    transaction_hash = match.group(1)
+                    logger.info(f"Extracted transaction hash: {transaction_hash}")
             
-            # If we couldn't parse, use the blob_name as fallback but log warning
-            if not blob_id:
-                logger.warning(f"Could not parse blob ID from Shelby output. Using blob_name. Output: {output[:500]}")
-                blob_id = blob_name
-                blob_url = f"shelby://{blob_id}"
+            # Extract account address from Shelby Explorer link
+            # Format: https://explorer.shelby.xyz/shelbynet/account/0x<address>
+            match = re.search(r'explorer\.shelby\.xyz/shelbynet/account/(0x[a-f0-9]{64})', output)
+            if match:
+                account_address = match.group(1)
+                logger.info(f"Extracted account address from explorer link: {account_address}")
+            else:
+                # Try to get account from CLI config or use default account
+                try:
+                    import subprocess
+                    account_result = subprocess.run(
+                        ['shelby', 'account', 'list'],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    # Parse account address from list output
+                    # Format: │ default │ 0x<address> │ ...
+                    match = re.search(r'default.*?│\s*(0x[a-f0-9]{64})', account_result.stdout)
+                    if match:
+                        account_address = match.group(1)
+                        logger.info(f"Extracted account address from account list: {account_address}")
+                except:
+                    pass
+            
+            # Use blob_name as the blob identifier (this is what Shelby uses)
+            # The blob_name is what appears in the explorer URL
+            blob_id = blob_name  # Use the actual blob name, not transaction hash
+            blob_url = f"https://api.shelbynet.shelby.xyz/shelby/v1/blobs/{account_address}/{blob_name}" if account_address else f"shelby://{blob_name}"
+            
+            # Generate proper explorer URL
+            # Format: https://explorer.shelby.xyz/shelbynet/account/{account}/blobs?name={blob_name}
+            if account_address:
+                explorer_url = f"https://explorer.shelby.xyz/shelbynet/account/{account_address}/blobs?name={blob_name}"
+            else:
+                explorer_url = f"https://explorer.shelby.xyz/shelbynet/blob/{blob_name}"  # Fallback
+            
+            # Generate Aptos transaction explorer URL
+            aptos_explorer_url = None
+            if transaction_hash:
+                aptos_explorer_url = f"https://explorer.aptoslabs.com/txn/{transaction_hash}?network=shelbynet"
             
             # Calculate expiration date for response
             from datetime import datetime, timedelta
@@ -5370,9 +5392,13 @@ def shelby_upload():
             return jsonify({
                 "success": True,
                 "blobUrl": blob_url,
-                "blobId": blob_id,
+                "blobId": blob_id,  # This is the blob name
+                "blobName": blob_name,  # Explicit blob name
+                "accountAddress": account_address,
+                "transactionHash": transaction_hash,
                 "expirationDate": expiration_date.isoformat(),
-                "explorerUrl": f"https://explorer.shelby.xyz/shelbynet/blob/{blob_id}",
+                "explorerUrl": explorer_url,
+                "aptosExplorerUrl": aptos_explorer_url,
                 "rawOutput": output[:200]  # Include for debugging
             })
         finally:
