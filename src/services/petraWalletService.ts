@@ -599,12 +599,6 @@ export async function getMetadataAddress(creatorAddress: string): Promise<string
   }
 }
 
-  } catch (error) {
-    console.error('❌ Error getting token balance:', error)
-    return 0
-  }
-}
-
 /**
  * Get current supply of a token
  */
