@@ -649,12 +649,27 @@ const TradingMarketplace: React.FC = () => {
           return
         }
         
-        // FINAL SUPPLY CHECK - Query contract state right before transaction
-        // This ensures we have the latest state and prevents race conditions
+        // FINAL SUPPLY CHECK - Use cached values if available to avoid rate limits
+        // Only query contract if we don't have cached values (e.g., early check failed due to rate limit)
         if (tokenData?.creator) {
           try {
-            const currentSupply = await getCurrentSupply(tokenData.creator)
-            const totalSupply = await getTotalSupply(tokenData.creator)
+            let currentSupply: number
+            let totalSupply: number
+            let aptReserve: number
+            
+            // Use cached values if available, otherwise query contract
+            if (cachedSupply) {
+              console.log(`[Final Supply Check] Using cached supply values to avoid rate limits`)
+              currentSupply = cachedSupply.current
+              totalSupply = cachedSupply.total
+              aptReserve = cachedSupply.reserve
+            } else {
+              console.log(`[Final Supply Check] Querying contract (no cached values)`)
+              currentSupply = await getCurrentSupply(tokenData.creator)
+              totalSupply = await getTotalSupply(tokenData.creator)
+              aptReserve = await getAptReserve(tokenData.creator)
+            }
+            
             const availableSupply = totalSupply - currentSupply
             
             console.log(`[Final Supply Check] ========================================`)
@@ -695,7 +710,7 @@ const TradingMarketplace: React.FC = () => {
               estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
             } else {
               // Subsequent buys: tokens = apt_payment / (old_reserve / old_supply)
-              const aptReserveOctas = Math.round((await getAptReserve(tokenData.creator)) * 100000000)
+              const aptReserveOctas = Math.round(aptReserve * 100000000)
               if (aptReserveOctas === 0 || currentSupply === 0) {
                 estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
               } else {
@@ -721,7 +736,7 @@ const TradingMarketplace: React.FC = () => {
               const maxTokensCanBuy = availableSupply
               const maxAptCanSpend = currentSupply === 0 
                 ? (maxTokensCanBuy * 0.00001)
-                : (maxTokensCanBuy * (await getAptReserve(tokenData.creator) / currentSupply))
+                : (maxTokensCanBuy * (aptReserve / currentSupply))
               
               console.error(`[Final Supply Check] ❌ BLOCKED - Would exceed supply!`)
               console.error(`[Final Supply Check] Max tokens you can buy: ${maxTokensCanBuy}`)
