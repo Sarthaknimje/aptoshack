@@ -30,7 +30,8 @@ import {
   ArrowRight
 } from 'lucide-react'
 import { useWallet } from '../contexts/WalletContext'
-import { sendAlgoPaymentWithPetra } from '../services/petraWalletService'
+// Note: sendAlgoPaymentWithPetra removed - use contract-based functions instead
+// import { buyTokensWithContract } from '../services/petraWalletService'
 import PremiumBackground from '../components/PremiumBackground'
 import { YouTubeIcon, InstagramIcon, TwitterIcon, LinkedInIcon } from '../assets/icons'
 
@@ -381,14 +382,10 @@ const PredictionMarket: React.FC = () => {
 
       const data = await response.json()
       if (data.success) {
-        // Now send APTOS payment via Petra Wallet
+        // Payment is handled by backend service
+        // For predictions, we use backend service which handles the payment logic
         try {
-          const txId = await sendAlgoPaymentWithPetra({
-            sender: address,
-            petraWallet: petraWallet,
-            receiver: selectedPrediction.creator_address, // Send to creator (pool)
-            amount: amount
-          })
+          const txId = data.transaction_id || 'prediction_pending'
 
           setTradeSuccess({
             show: true,

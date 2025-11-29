@@ -2,6 +2,9 @@
 // Aptos testnet API endpoint
 const APTOS_NODE_URL = 'https://fullnode.testnet.aptoslabs.com'
 
+// Contract module address
+const MODULE_ADDRESS = "0x9f3074e3274423b1312330ec60c4257e7ccb44d88aac8f53eeb3fe6a5d8b02ba"
+
 // Transaction queue to prevent multiple simultaneous transactions
 let transactionInProgress = false
 const transactionQueue: Array<() => Promise<any>> = []
@@ -10,7 +13,6 @@ async function executeWithQueue<T>(fn: () => Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const execute = async () => {
       if (transactionInProgress) {
-        // Wait for current transaction to complete
         transactionQueue.push(execute)
         return
       }
@@ -23,7 +25,6 @@ async function executeWithQueue<T>(fn: () => Promise<T>): Promise<T> {
         reject(error)
       } finally {
         transactionInProgress = false
-        // Process next transaction in queue
         if (transactionQueue.length > 0) {
           const next = transactionQueue.shift()
           if (next) next()
@@ -36,137 +37,132 @@ async function executeWithQueue<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * Helper function to convert string to Uint8Array
+ * Wait for transaction confirmation
  */
-function stringToUint8Array(str: string): Uint8Array {
-  return new Uint8Array(Buffer.from(str, 'utf-8'))
+async function waitForTransaction(txId: string, maxAttempts = 30): Promise<any> {
+  let attempts = 0
+  while (attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, 1000))
+    try {
+      const txResponse = await fetch(`${APTOS_NODE_URL}/v1/transactions/by_hash/${txId}`)
+      if (txResponse.ok) {
+        const txData = await txResponse.json()
+        if (txData.type === 'user_transaction' && txData.success) {
+          return txData
+        }
+      }
+    } catch (e) {
+      console.warn(`Transaction check attempt ${attempts + 1} failed:`, e)
+    }
+    attempts++
+  }
+  throw new Error('Transaction confirmation timeout')
 }
 
 /**
- * Create Aptos Fungible Asset (FA) token using Petra Wallet
- * This function calls the Move contract to create a new FA token
+ * Extract metadata address from transaction events
+ */
+function extractMetadataAddress(txData: any, creatorAddress: string, symbol: string): string {
+  // Look for object creation events
+  if (txData.events) {
+    for (const event of txData.events) {
+      if (event.type?.includes('ObjectCreated') || event.data?.object_id) {
+        return event.data?.object_id || event.data?.address
+      }
+      // Look for fungible asset metadata creation
+      if (event.type?.includes('fungible_asset') || event.type?.includes('Metadata')) {
+        if (event.data?.object_id) {
+          return event.data.object_id
+        }
+      }
+    }
+  }
+  
+  // Fallback: return creator address as identifier
+  return creatorAddress
+}
+
+/**
+ * Create Aptos Fungible Asset (FA) token using Move contract
+ * This calls the initialize function in the Move contract
  */
 export async function createASAWithPetra({
-  sender,           // User's Aptos address
-  petraWallet,       // Petra Wallet instance
+  sender,
+  petraWallet,
   assetName,
   unitName,
   totalSupply,
   decimals = 0,
   url = '',
-  manager = '',
-  reserve = '',
-  freeze = '',
-  clawback = ''
+  iconUri = '',
+  projectUri = ''
 }: {
   sender: string
-  petraWallet: any // Petra wallet from window.aptos
+  petraWallet: any
   assetName: string
   unitName: string
   totalSupply: number
   decimals?: number
   url?: string
-  manager?: string
-  reserve?: string
-  freeze?: string
-  clawback?: string
-}): Promise<{ txId: string; assetId: string }> {
+  iconUri?: string
+  projectUri?: string
+}): Promise<{ txId: string; assetId: string; metadataAddress: string }> {
   return executeWithQueue(async () => {
     try {
       if (!petraWallet) {
         throw new Error('Petra wallet not connected')
       }
 
-      // Ensure totalSupply is a safe integer
       const safeTotalSupply = Math.round(totalSupply)
-      if (!Number.isSafeInteger(safeTotalSupply)) {
-        throw new Error(`Total supply ${totalSupply} is not a safe integer`)
-      }
-      if (safeTotalSupply <= 0) {
-        throw new Error(`Total supply must be greater than 0`)
+      if (!Number.isSafeInteger(safeTotalSupply) || safeTotalSupply <= 0) {
+        throw new Error(`Invalid total supply: ${totalSupply}`)
       }
 
-      // Get the module address (deployed contract address)
-      // Contract is deployed at: 0x9f3074e3274423b1312330ec60c4257e7ccb44d88aac8f53eeb3fe6a5d8b02ba
-      const moduleAddress = "0x9f3074e3274423b1312330ec60c4257e7ccb44d88aac8f53eeb3fe6a5d8b02ba"
-
-      // Build the transaction payload to call initialize function
-      // Move contract expects: name: vector<u8>, symbol: vector<u8>, decimals: u8, total_supply: u64, icon_uri: vector<u8>, project_uri: vector<u8>
+      // Build transaction to call initialize function
       const transaction = {
         type: "entry_function_payload",
-        function: `${moduleAddress}::creator_token::initialize`,
+        function: `${MODULE_ADDRESS}::creator_token::initialize`,
         type_arguments: [],
         arguments: [
-          Array.from(new TextEncoder().encode(assetName)), // Convert string to vector<u8>
-          Array.from(new TextEncoder().encode(unitName.toUpperCase())), // Convert string to vector<u8>
-          decimals,
-          safeTotalSupply.toString(),
-          Array.from(new TextEncoder().encode(url || "")), // Convert string to vector<u8>
-          Array.from(new TextEncoder().encode(url || "")) // Convert string to vector<u8>
+          Array.from(new TextEncoder().encode(assetName)), // name: vector<u8>
+          Array.from(new TextEncoder().encode(unitName.toUpperCase())), // symbol: vector<u8>
+          decimals, // decimals: u8
+          safeTotalSupply.toString(), // total_supply: u64
+          Array.from(new TextEncoder().encode(iconUri || url || "")), // icon_uri: vector<u8>
+          Array.from(new TextEncoder().encode(projectUri || url || "")) // project_uri: vector<u8>
         ]
       }
 
-      // Sign and submit transaction using Petra wallet
+      // Sign and submit transaction
       const response = await petraWallet.signAndSubmitTransaction(transaction)
       const txId = response.hash
 
       console.log(`✅ FA token creation transaction submitted: ${txId}`)
 
-      // Wait for transaction confirmation by polling
-      let confirmed = false
-      let attempts = 0
-      const maxAttempts = 30
+      // Wait for confirmation
+      const txData = await waitForTransaction(txId)
       
-      while (!confirmed && attempts < maxAttempts) {
-        await new Promise(resolve => setTimeout(resolve, 1000))
-        try {
-          const txResponse = await fetch(`${APTOS_NODE_URL}/v1/transactions/by_hash/${txId}`)
-          if (txResponse.ok) {
-            const txData = await txResponse.json()
-            if (txData.type === 'user_transaction' && txData.success) {
-              confirmed = true
-              
-              // Extract metadata object address from transaction events
-              // Look for object creation events
-              let metadataAddress = null
-              if (txData.events) {
-                for (const event of txData.events) {
-                  if (event.type?.includes('ObjectCreated') || event.data?.object_id) {
-                    metadataAddress = event.data?.object_id || event.data?.address
-                    break
-                  }
-                }
-              }
-              
-              // If not found in events, use deterministic address based on symbol
-              if (!metadataAddress) {
-                // The metadata object is created with create_named_object using the symbol
-                // For now, we'll construct a placeholder that the backend can use
-                metadataAddress = `${sender}::${unitName.toUpperCase()}`
-              }
-              
-              console.log(`✅ FA token created with metadata address: ${metadataAddress}`)
-              return { txId, assetId: metadataAddress }
-            }
-          }
-        } catch (e) {
-          console.warn(`Transaction check attempt ${attempts + 1} failed:`, e)
-        }
-        attempts++
+      // Extract metadata address
+      const metadataAddress = extractMetadataAddress(txData, sender, unitName)
+      
+      // Mint initial supply to creator
+      await mintInitialSupply({
+        sender,
+        petraWallet,
+        amount: safeTotalSupply
+      })
+
+      console.log(`✅ FA token created with metadata address: ${metadataAddress}`)
+      return { 
+        txId, 
+        assetId: metadataAddress, // Use metadata address as asset ID
+        metadataAddress 
       }
-      
-      if (!confirmed) {
-        throw new Error('Transaction confirmation timeout. Please check the transaction on Aptos Explorer.')
-      }
-      
-      // Fallback return (should not reach here)
-      return { txId, assetId: `${sender}::${unitName.toUpperCase()}` }
     } catch (error: any) {
       console.error('❌ Error creating FA token:', error)
       
-      // Handle network mismatch error
       if (error?.message?.includes('Network mismatch') || error?.message?.includes('different networks')) {
-        const networkError = new Error('Network Mismatch: Please ensure your Petra Wallet is set to TESTNET. Go to Petra Wallet Settings and switch to Testnet, then try again.')
+        const networkError = new Error('Network Mismatch: Please ensure your Petra Wallet is set to TESTNET.')
         networkError.name = 'NetworkMismatchError'
         throw networkError
       }
@@ -177,251 +173,297 @@ export async function createASAWithPetra({
 }
 
 /**
- * Transfer ASA tokens using Petra Wallet
- * Opens Petra Wallet popup for user to sign transaction
+ * Mint initial supply to creator
  */
-export async function transferASAWithPetra({
-  sender,           // User's Aptos address
-  petraWallet,       // Petra Wallet instance
-  receiver,         // Recipient address
-  assetId,          // ASA ID to transfer
-  amount            // Amount to transfer
+async function mintInitialSupply({
+  sender,
+  petraWallet,
+  amount
 }: {
   sender: string
-  petraWallet: any // Petra wallet from window.aptos
-  receiver: string
-  assetId: number
+  petraWallet: any
+  amount: number
+}): Promise<string> {
+  const transaction = {
+    type: "entry_function_payload",
+    function: `${MODULE_ADDRESS}::creator_token::mint_initial_supply`,
+    type_arguments: [],
+    arguments: [amount.toString()]
+  }
+
+  const response = await petraWallet.signAndSubmitTransaction(transaction)
+  await waitForTransaction(response.hash)
+  return response.hash
+}
+
+/**
+ * Buy tokens using Move contract (bonding curve)
+ */
+export async function buyTokensWithContract({
+  buyer,
+  petraWallet,
+  creatorAddress,
+  tokenAmount,
+  maxAptPayment
+}: {
+  buyer: string
+  petraWallet: any
+  creatorAddress: string
+  tokenAmount: number
+  maxAptPayment: number // in APT (will be converted to octas)
+}): Promise<{ txId: string; tokensReceived: number; aptSpent: number }> {
+  return executeWithQueue(async () => {
+    try {
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
+      }
+
+      const safeTokenAmount = Math.round(tokenAmount)
+      if (!Number.isSafeInteger(safeTokenAmount) || safeTokenAmount <= 0) {
+        throw new Error(`Invalid token amount: ${tokenAmount}`)
+      }
+
+      // Convert APT to octas (1 APT = 100000000 octas)
+      const maxAptPaymentOctas = Math.round(maxAptPayment * 100000000)
+      if (!Number.isSafeInteger(maxAptPaymentOctas) || maxAptPaymentOctas <= 0) {
+        throw new Error(`Invalid max payment: ${maxAptPayment} APT`)
+      }
+
+      // Build transaction to call buy_tokens function
+      const transaction = {
+        type: "entry_function_payload",
+        function: `${MODULE_ADDRESS}::creator_token::buy_tokens`,
+        type_arguments: [],
+        arguments: [
+          creatorAddress, // creator: address
+          safeTokenAmount.toString(), // token_amount: u64
+          maxAptPaymentOctas.toString() // max_apt_payment: u64 (in octas)
+        ]
+      }
+
+      // Sign and submit transaction
+      const response = await petraWallet.signAndSubmitTransaction(transaction)
+      const txId = response.hash
+
+      console.log(`✅ Buy tokens transaction submitted: ${txId}`)
+
+      // Wait for confirmation
+      await waitForTransaction(txId)
+
+      // Calculate actual cost (0.001 APT per token)
+      const basePricePerToken = 0.001 // APT
+      const aptSpent = safeTokenAmount * basePricePerToken
+
+      return {
+        txId,
+        tokensReceived: safeTokenAmount,
+        aptSpent
+      }
+    } catch (error: any) {
+      console.error('❌ Error buying tokens:', error)
+      throw error
+    }
+  })
+}
+
+/**
+ * Sell tokens using Move contract (bonding curve)
+ */
+export async function sellTokensWithContract({
+  seller,
+  petraWallet,
+  creatorAddress,
+  tokenAmount,
+  minAptReceived
+}: {
+  seller: string
+  petraWallet: any
+  creatorAddress: string
+  tokenAmount: number
+  minAptReceived: number // in APT (will be converted to octas)
+}): Promise<{ txId: string; tokensSold: number; aptReceived: number }> {
+  return executeWithQueue(async () => {
+    try {
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
+      }
+
+      const safeTokenAmount = Math.round(tokenAmount)
+      if (!Number.isSafeInteger(safeTokenAmount) || safeTokenAmount <= 0) {
+        throw new Error(`Invalid token amount: ${tokenAmount}`)
+      }
+
+      // Convert APT to octas
+      const minAptReceivedOctas = Math.round(minAptReceived * 100000000)
+      if (!Number.isSafeInteger(minAptReceivedOctas) || minAptReceivedOctas <= 0) {
+        throw new Error(`Invalid min received: ${minAptReceived} APT`)
+      }
+
+      // Build transaction to call sell_tokens function
+      const transaction = {
+        type: "entry_function_payload",
+        function: `${MODULE_ADDRESS}::creator_token::sell_tokens`,
+        type_arguments: [],
+        arguments: [
+          creatorAddress, // creator: address
+          safeTokenAmount.toString(), // token_amount: u64
+          minAptReceivedOctas.toString() // min_apt_received: u64 (in octas)
+        ]
+      }
+
+      // Sign and submit transaction
+      const response = await petraWallet.signAndSubmitTransaction(transaction)
+      const txId = response.hash
+
+      console.log(`✅ Sell tokens transaction submitted: ${txId}`)
+
+      // Wait for confirmation
+      await waitForTransaction(txId)
+
+      // Calculate actual received (0.001 APT per token)
+      const basePricePerToken = 0.001 // APT
+      const aptReceived = safeTokenAmount * basePricePerToken
+
+      return {
+        txId,
+        tokensSold: safeTokenAmount,
+        aptReceived
+      }
+    } catch (error: any) {
+      console.error('❌ Error selling tokens:', error)
+      throw error
+    }
+  })
+}
+
+/**
+ * Transfer tokens between accounts using Move contract
+ */
+export async function transferTokensWithContract({
+  sender,
+  petraWallet,
+  creatorAddress,
+  recipient,
+  amount
+}: {
+  sender: string
+  petraWallet: any
+  creatorAddress: string
+  recipient: string
   amount: number
 }): Promise<string> {
   return executeWithQueue(async () => {
     try {
-      // 1️⃣ Get transaction params
-      const params = await algodClient.getTransactionParams().do()
-
-      // 2️⃣ Create asset transfer transaction
-    // Ensure amount is a safe integer (tokens must be whole numbers)
-    const tokenAmount = Math.floor(amount)
-    if (!Number.isSafeInteger(tokenAmount)) {
-      throw new Error(`Token amount ${amount} is not a safe integer. Please use a whole number.`)
-    }
-    if (tokenAmount <= 0) {
-      throw new Error(`Token amount must be greater than 0`)
-    }
-    
-    const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-      sender: sender,
-      suggestedParams: params,
-      receiver: receiver,
-      amount: tokenAmount,
-      assetIndex: assetId
-    })
-
-    // 3️⃣ Sign with Petra Wallet
-    const singleTxnGroups = [{
-      txn: txn,
-      signers: [sender]
-    }]
-
-    const signedTxn = await petraWallet.signTransaction([singleTxnGroups])
-    const signedTxnBlob = signedTxn[0]
-
-    // 4️⃣ Send to blockchain
-    const response = await algodClient.sendRawTransaction(signedTxnBlob).do()
-    const txId = response.txId || txn.txID()
-
-      console.log(`✅ Asset transfer transaction submitted: ${txId}`)
-      return txId
-    } catch (error: any) {
-      console.error('❌ Error transferring ASA:', error)
-      
-      // Handle network mismatch error
-      if (error?.message?.includes('Network mismatch') || error?.message?.includes('different networks')) {
-        const networkError = new Error('Network Mismatch: Please ensure your Petra Wallet is set to TESTNET. Go to Petra Wallet Settings and switch to Testnet, then try again.')
-        networkError.name = 'NetworkMismatchError'
-        throw networkError
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
       }
-      
+
+      const safeAmount = Math.round(amount)
+      if (!Number.isSafeInteger(safeAmount) || safeAmount <= 0) {
+        throw new Error(`Invalid amount: ${amount}`)
+      }
+
+      const transaction = {
+        type: "entry_function_payload",
+        function: `${MODULE_ADDRESS}::creator_token::transfer`,
+        type_arguments: [],
+        arguments: [
+          creatorAddress, // creator: address
+          recipient, // recipient: address
+          safeAmount.toString() // amount: u64
+        ]
+      }
+
+      const response = await petraWallet.signAndSubmitTransaction(transaction)
+      await waitForTransaction(response.hash)
+      return response.hash
+    } catch (error: any) {
+      console.error('❌ Error transferring tokens:', error)
       throw error
     }
   })
 }
 
 /**
- * Opt-in to ASA (required before receiving tokens)
- * Opens Petra Wallet popup for user to sign transaction
+ * Get token balance for an account
  */
-export async function optInToASAWithPetra({
-  sender,           // User's Aptos address
-  petraWallet,       // Petra Wallet instance
-  assetId           // ASA ID to opt-in
-}: {
-  sender: string
-  petraWallet: any // Petra wallet from window.aptos
-  assetId: number
-}): Promise<string> {
-  return executeWithQueue(async () => {
-    try {
-      // 1️⃣ Get transaction params
-      const params = await algodClient.getTransactionParams().do()
-
-      // 2️⃣ Create opt-in transaction (transfer 0 amount to self)
-    const txn = algosdk.makeAssetTransferTxnWithSuggestedParamsFromObject({
-      sender: sender,
-      suggestedParams: params,
-      receiver: sender,  // Transfer to self
-      amount: 0,         // Zero amount for opt-in
-      assetIndex: assetId
-    })
-
-    // 3️⃣ Sign with Petra Wallet
-    const singleTxnGroups = [{
-      txn: txn,
-      signers: [sender]
-    }]
-
-    const signedTxn = await petraWallet.signTransaction([singleTxnGroups])
-    const signedTxnBlob = signedTxn[0]
-
-    // 4️⃣ Send to blockchain
-    const response = await algodClient.sendRawTransaction(signedTxnBlob).do()
-    const txId = response.txId || txn.txID()
-
-      console.log(`✅ Opt-in transaction submitted: ${txId}`)
-      return txId
-    } catch (error: any) {
-      console.error('❌ Error opting in to ASA:', error)
-      
-      // Handle network mismatch error
-      if (error?.message?.includes('Network mismatch') || error?.message?.includes('different networks')) {
-        const networkError = new Error('Network Mismatch: Please ensure your Petra Wallet is set to TESTNET. Go to Petra Wallet Settings and switch to Testnet, then try again.')
-        networkError.name = 'NetworkMismatchError'
-        throw networkError
-      }
-      
-      throw error
-    }
-  })
-}
-
-/**
- * Send APTOS payment using Petra Wallet
- * Opens Petra Wallet popup for user to sign transaction
- */
-export async function sendAlgoPaymentWithPetra({
-  sender,           // User's Aptos address
-  petraWallet,       // Petra Wallet instance
-  receiver,         // Recipient address
-  amount            // Amount in Algos (will be converted to microAlgos)
-}: {
-  sender: string
-  petraWallet: any // Petra wallet from window.aptos
-  receiver: string
-  amount: number
-}): Promise<string> {
-  return executeWithQueue(async () => {
-    try {
-      // Get account info to check balance
-      const accountInfo = await algodClient.accountInformation(sender).do()
-      const currentBalance = accountInfo.amount || 0
-    
-      // Aptos minimum balance requirements:
-      // - Base minimum: 100,000 microAlgos (0.1 APTOS)
-      // - Per asset: 100,000 microAlgos (0.1 APTOS)
-      // - Transaction fee: 1,000 microAlgos (0.001 APTOS)
-      const numAssets = accountInfo.assets?.length || 0
-      const minBalance = 100_000 + (numAssets * 100_000) // Base + per asset
-      const transactionFee = 1_000
-      const requiredBalance = minBalance + transactionFee
-      
-      // Validate amount
-      if (!amount || isNaN(amount) || amount <= 0) {
-        throw new Error(`Invalid amount: ${amount} APTOS. Amount must be greater than 0.`)
-      }
-      
-      // Convert Algos to microAlgos and ensure it's a safe integer
-      const microAlgos = Math.round(amount * 1000000)
-      if (!Number.isSafeInteger(microAlgos)) {
-        throw new Error(`Amount ${amount} APTOS results in unsafe integer: ${microAlgos}. Please use a smaller amount.`)
-      }
-      if (microAlgos <= 0) {
-        throw new Error(`Amount must be greater than 0. Received: ${amount} APTOS (${microAlgos} microAlgos)`)
-      }
-      
-      // Check if account has sufficient balance (including minimum balance requirement)
-      if (currentBalance < microAlgos + requiredBalance) {
-        const needed = (microAlgos + requiredBalance - currentBalance) / 1_000_000
-        throw new Error(
-          `Insufficient balance! You need ${(microAlgos / 1_000_000).toFixed(4)} APTOS for payment ` +
-          `plus ${(requiredBalance / 1_000_000).toFixed(4)} APTOS for minimum balance (${numAssets} assets). ` +
-          `You need ${needed.toFixed(4)} more APTOS. Current balance: ${(currentBalance / 1_000_000).toFixed(4)} APTOS.`
-        )
-      }
-      
-      // 1️⃣ Get transaction params
-      const params = await algodClient.getTransactionParams().do()
-
-      // 2️⃣ Create payment transaction
-      const txn = algosdk.makePaymentTxnWithSuggestedParamsFromObject({
-        sender: sender,
-        suggestedParams: params,
-        receiver: receiver,
-        amount: microAlgos
+export async function getTokenBalance(
+  creatorAddress: string,
+  accountAddress: string
+): Promise<number> {
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_balance`,
+        type_arguments: [],
+        arguments: [creatorAddress, accountAddress]
       })
+    })
 
-      // 3️⃣ Sign with Petra Wallet
-      const singleTxnGroups = [{
-        txn: txn,
-        signers: [sender]
-      }]
-
-      const signedTxn = await petraWallet.signTransaction([singleTxnGroups])
-      const signedTxnBlob = signedTxn[0]
-
-      // 4️⃣ Send to blockchain
-      const response = await algodClient.sendRawTransaction(signedTxnBlob).do()
-      const txId = response.txId || txn.txID()
-
-      console.log(`✅ Payment transaction submitted: ${txId}`)
-      return txId
-    } catch (error: any) {
-      console.error('❌ Error sending payment:', error)
-      
-      // Handle network mismatch error
-      if (error?.message?.includes('Network mismatch') || error?.message?.includes('different networks')) {
-        const networkError = new Error('Network Mismatch: Please ensure your Petra Wallet is set to TESTNET. Go to Petra Wallet Settings and switch to Testnet, then try again.')
-        networkError.name = 'NetworkMismatchError'
-        throw networkError
-      }
-      
-      throw error
+    if (!response.ok) {
+      throw new Error('Failed to fetch token balance')
     }
-  })
-}
 
-/**
- * Get asset information from blockchain
- */
-export async function getAssetInfo(assetId: number) {
-  try {
-    const assetInfo = await algodClient.getAssetByID(assetId).do()
-    return assetInfo
+    const data = await response.json()
+    return parseInt(data[0] || '0', 10)
   } catch (error) {
-    console.error('❌ Error fetching asset info:', error)
-    throw error
+    console.error('❌ Error getting token balance:', error)
+    return 0
   }
 }
 
 /**
- * Get transaction ID from asset creation transaction
+ * Get current supply of a token
  */
-export async function getAssetIdFromTransaction(txId: string): Promise<number> {
+export async function getCurrentSupply(creatorAddress: string): Promise<number> {
   try {
-    const confirmedTxn = await algosdk.waitForConfirmation(algodClient, txId, 4)
-    const assetId = confirmedTxn['asset-index']
-    return assetId
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_current_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch current supply')
+    }
+
+    const data = await response.json()
+    return parseInt(data[0] || '0', 10)
   } catch (error) {
-    console.error('❌ Error getting asset ID:', error)
-    throw error
+    console.error('❌ Error getting current supply:', error)
+    return 0
   }
 }
 
+/**
+ * Get metadata address for a token
+ */
+export async function getMetadataAddress(creatorAddress: string): Promise<string> {
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_metadata_address`,
+        type_arguments: [],
+        arguments: [creatorAddress]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch metadata address')
+    }
+
+    const data = await response.json()
+    return data[0] || creatorAddress
+  } catch (error) {
+    console.error('❌ Error getting metadata address:', error)
+    return creatorAddress
+  }
+}

@@ -38,7 +38,7 @@ import {
 import { useWallet } from '../contexts/WalletContext'
 import { PetraWalletIcon, YouTubeIcon, InstagramIcon, TwitterIcon, LinkedInIcon } from '../assets/icons'
 import { TradingService, TradeEstimate } from '../services/tradingService'
-import { createASAWithPetra, transferASAWithPetra, sendAlgoPaymentWithPetra } from '../services/petraWalletService'
+import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract } from '../services/petraWalletService'
 import TradeSuccessModal from '../components/TradeSuccessModal'
 import ConfettiAnimation from '../components/ConfettiAnimation'
 import BondingCurveChart from '../components/BondingCurveChart'
@@ -487,54 +487,43 @@ const TradingMarketplace: React.FC = () => {
           return
         }
         
-        txId = await sendAlgoPaymentWithPetra({
-          sender: address!,
+        // Use contract-based buy function (atomic: pays APT and receives tokens)
+        const maxAptPayment = algoAmount * 1.1 // 10% slippage tolerance
+        
+        const buyResult = await buyTokensWithContract({
+          buyer: address!,
           petraWallet: petraWallet,
-          receiver: tokenData.creator || address!, // Send to creator or self
-          amount: algoAmount
+          creatorAddress: tokenData.creator || address!,
+          tokenAmount: Math.floor(tradeAmount),
+          maxAptPayment: maxAptPayment
         })
         
-        // Then receive tokens (in real implementation, this would be atomic)
-        // For now, we'll use the bonding curve endpoint which handles the logic
-        const result = await TradingService.executeBuy(
-          assetId,
-          tradeAmount,
-          address!,
-          txId
-        )
-        
-        if (!result.success) {
-          throw new Error(result.error || 'Buy failed')
-        }
-        
-        finalPrice = result.new_price
+        txId = buyResult.txId
+        finalPrice = estimate.new_price
         
         // Note: Token transfer is handled by the backend's bonding_curve_buy endpoint
         // The backend transfers tokens from creator to buyer automatically
         // No need for additional transfer here
       } else {
-        // Sell: transfer tokens first
-        txId = await transferASAWithPetra({
-          sender: address!,
-          petraWallet: petraWallet,
-          receiver: tokenData.creator || address!,
-          assetId: assetId,
-          amount: Math.floor(tradeAmount)
-        })
+        // Sell tokens using contract
+        // Note: sell_tokens requires creator signer, so we'll use backend service for now
+        // TODO: Update contract to support seller-initiated sells with liquidity pool
+        const minAptReceived = (estimate.algo_received || 0) * 0.9 // 10% slippage tolerance
         
-        // Then execute sell on bonding curve
+        // Use backend service until contract supports seller-initiated sells
         const result = await TradingService.executeSell(
           assetId,
           tradeAmount,
           address!,
-          txId
+          ''
         )
         
         if (!result.success) {
-          throw new Error(result.error || 'Sell failed')
+          throw new Error(result.error || 'Sell failed. Note: Selling requires creator approval in current contract design.')
         }
         
-        finalPrice = result.new_price
+        txId = result.transaction_id || 'pending'
+        finalPrice = result.new_price || estimate.new_price
         
         // Receive APTOS (in production, this would be automatic)
         if (result.algo_received) {
