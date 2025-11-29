@@ -270,12 +270,12 @@ const TradingMarketplace: React.FC = () => {
           const token = result.tokens.find((t: any) => t.asa_id === asaId || t.token_id === asaId)
           if (token?.creator) {
             const balance = await getTokenBalance(token.creator, address)
-            setUserTokenBalance(balance)
-            return
-          }
+          setUserTokenBalance(balance)
+          return
+        }
         }
         setUserTokenBalance(0)
-        return
+          return
       }
       
       // Fetch balance from contract
@@ -484,8 +484,8 @@ const TradingMarketplace: React.FC = () => {
           estimate.new_price = basePricePerToken
         } else {
           setTradeError(`Invalid trade estimate. Cost: ${estimate.algo_cost || 'N/A'} APTOS. Please try again.`)
-          setIsProcessing(false)
-          return
+        setIsProcessing(false)
+        return
         }
       }
       
@@ -777,10 +777,32 @@ const TradingMarketplace: React.FC = () => {
             
             // Calculate min tokens for slippage protection (90% of estimated)
             // But ensure it doesn't exceed available supply
-            const maxMinTokens = Math.min(estimatedTokensFromContract, availableSupply - safetyMargin)
+            // Also reduce estimated tokens by safety margin to be extra conservative
+            const safeEstimatedTokens = Math.max(1, estimatedTokensFromContract - safetyMargin)
+            const maxMinTokens = Math.min(safeEstimatedTokens, availableSupply - safetyMargin)
             const minTokensReceived = Math.floor(maxMinTokens * 0.9)
             
+            console.log(`[Final Supply Check] Estimated tokens (before safety): ${estimatedTokensFromContract}`)
+            console.log(`[Final Supply Check] Safe estimated tokens (after safety margin): ${safeEstimatedTokens}`)
             console.log(`[Final Supply Check] ✅ Proceeding - Min tokens: ${minTokensReceived}, Max available: ${availableSupply}`)
+            
+            // Double-check: ensure we're not trying to buy more than available
+            if (safeEstimatedTokens > availableSupply) {
+              const maxTokensCanBuy = availableSupply - safetyMargin
+              const maxAptCanSpend = currentSupply === 0 
+                ? (maxTokensCanBuy * 0.00001)
+                : (maxTokensCanBuy * (aptReserve / currentSupply))
+              
+              setTradeError(
+                `Transaction would exceed available supply! ` +
+                `Available: ${availableSupply.toFixed(0)} tokens, ` +
+                `Would mint: ${safeEstimatedTokens.toFixed(0)} tokens. ` +
+                `Maximum you can buy: ${maxTokensCanBuy.toFixed(0)} tokens (${maxAptCanSpend.toFixed(6)} APT). ` +
+                `Please reduce your amount.`
+              )
+              setIsProcessing(false)
+              return
+            }
             
             const buyResult = await buyTokensWithContract({
               buyer: address!,
@@ -792,10 +814,10 @@ const TradingMarketplace: React.FC = () => {
             
             txId = buyResult.txId
             finalPrice = estimate.new_price
-            
-            // Note: Token transfer is handled by the backend's bonding_curve_buy endpoint
-            // The backend transfers tokens from creator to buyer automatically
-            // No need for additional transfer here
+        
+        // Note: Token transfer is handled by the backend's bonding_curve_buy endpoint
+        // The backend transfers tokens from creator to buyer automatically
+        // No need for additional transfer here
           } catch (error) {
             // This catch block is for supply check errors, not transaction errors
             // Transaction errors should be caught in the outer try-catch
@@ -817,7 +839,7 @@ const TradingMarketplace: React.FC = () => {
             setIsProcessing(false)
             return
           }
-        } else {
+      } else {
           // Fallback if creator address is missing
           setTradeError('Token creator address not found. Please refresh and try again.')
           setIsProcessing(false)
@@ -1630,7 +1652,7 @@ const TradingMarketplace: React.FC = () => {
                     <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
                       {activeTab === 'buy' ? (
                         <>
-                          <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center justify-between text-sm">
                             <span className="text-gray-400">You will receive:</span>
                             <span className="text-green-400 font-semibold">
                               {parseFloat(amount).toFixed(2)} {tokenData?.token_symbol || tokenData?.symbol || 'tokens'}
