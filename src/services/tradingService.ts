@@ -32,18 +32,30 @@ export class TradingService {
     tokenAmount: number
   ): Promise<TradeEstimate> {
     try {
+      const requestBody = {
+        asa_id: typeof tokenIdentifier === 'number' ? tokenIdentifier : undefined,
+        token_id: typeof tokenIdentifier === 'string' ? tokenIdentifier : undefined,
+        token_amount: tokenAmount,
+        trade_type: 'buy'
+      }
+      
+      console.log(`[estimateBuy] Request body:`, requestBody)
+      
       const response = await fetch(`${BACKEND_URL}/api/bonding-curve/estimate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          asa_id: typeof tokenIdentifier === 'number' ? tokenIdentifier : undefined,
-          token_id: typeof tokenIdentifier === 'string' ? tokenIdentifier : undefined,
-          token_amount: tokenAmount,
-          trade_type: 'buy'
-        })
+        body: JSON.stringify(requestBody)
       })
 
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.error(`[estimateBuy] HTTP ${response.status}: ${errorText}`)
+        throw new Error(`HTTP ${response.status}: ${errorText}`)
+      }
+
       const result = await response.json()
+      console.log(`[estimateBuy] Response:`, result)
+      
       if (result.success) {
         return {
           algo_cost: result.algo_cost,

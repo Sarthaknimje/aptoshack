@@ -468,14 +468,17 @@ const TradingMarketplace: React.FC = () => {
       return
     }
     
-    // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
     // Use content_id (token_id) for Aptos tokens, or asa_id for legacy Algorand tokens
+    // Priority: content_id > token_id > asa_id
     const tokenIdentifier = tokenData.content_id || tokenData.token_id || tokenData.asa_id
     if (!tokenIdentifier) {
+      console.error('❌ Token identifier not found in tokenData:', tokenData)
       setTradeError('Token identifier not found')
       setIsProcessing(false)
       return
     }
+    
+    console.log(`[handleTrade] Using token identifier: ${tokenIdentifier} (content_id: ${tokenData.content_id}, token_id: ${tokenData.token_id}, asa_id: ${tokenData.asa_id})`)
     
     const estimate = activeTab === 'buy'
       ? await TradingService.estimateBuy(tokenIdentifier, tradeAmount)
