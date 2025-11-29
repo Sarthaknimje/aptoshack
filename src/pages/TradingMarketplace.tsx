@@ -472,10 +472,18 @@ const TradingMarketplace: React.FC = () => {
 
     // Check balances (including minimum balance requirement)
     if (activeTab === 'buy') {
+      // For $0 initial price, calculate cost using contract's base price
       if (!estimate.algo_cost || estimate.algo_cost <= 0) {
-        setTradeError(`Invalid trade estimate. Cost: ${estimate.algo_cost || 'N/A'} APTOS. Please try again.`)
-        setIsProcessing(false)
-        return
+        // If price is $0, use contract's base price (0.00001 APT per token)
+        if (currentPrice === 0 || !currentPrice) {
+          const basePricePerToken = 0.00001 // Contract base price for first buy
+          estimate.algo_cost = tradeAmount * basePricePerToken
+          estimate.new_price = basePricePerToken
+        } else {
+          setTradeError(`Invalid trade estimate. Cost: ${estimate.algo_cost || 'N/A'} APTOS. Please try again.`)
+          setIsProcessing(false)
+          return
+        }
       }
       
       // Check available supply from contract
