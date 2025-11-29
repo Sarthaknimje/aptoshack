@@ -181,7 +181,11 @@ const TradingMarketplace: React.FC = () => {
             }
             
             // Fetch real trade history for chart
-            fetchTradeHistory(token.asa_id)
+            // Use token_id (Aptos metadata address) if available, otherwise fallback to asa_id
+            const tradeHistoryId = token.token_id || token.asa_id
+            if (tradeHistoryId) {
+              fetchTradeHistory(tradeHistoryId)
+            }
           } else {
             console.error('Token not found:', symbol)
           }
@@ -306,7 +310,10 @@ const TradingMarketplace: React.FC = () => {
       // Refresh token data
       fetchTokenData()
       // Refresh trade history
-      fetchTradeHistory(tokenData.asa_id)
+      const tradeHistoryId = tokenData.token_id || tokenData.asa_id
+      if (tradeHistoryId) {
+        fetchTradeHistory(tradeHistoryId)
+      }
     }, 10000) // Every 10 seconds
 
     return () => clearInterval(interval)
