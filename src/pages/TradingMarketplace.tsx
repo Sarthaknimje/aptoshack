@@ -470,6 +470,9 @@ const TradingMarketplace: React.FC = () => {
       return
     }
 
+    // Cache for supply values to avoid duplicate API calls (rate limit protection)
+    let cachedSupply: { current: number; total: number; reserve: number } | null = null
+
     // Check balances (including minimum balance requirement)
     if (activeTab === 'buy') {
       // For $0 initial price, calculate cost using contract's base price
@@ -492,6 +495,10 @@ const TradingMarketplace: React.FC = () => {
         try {
           const currentSupply = await getCurrentSupply(tokenData.creator)
           const totalSupply = await getTotalSupply(tokenData.creator)
+          const aptReserve = await getAptReserve(tokenData.creator)
+          
+          // Cache values for later use to avoid duplicate API calls
+          cachedSupply = { current: currentSupply, total: totalSupply, reserve: aptReserve }
           
           console.log(`[Supply Check] Current: ${currentSupply}, Total: ${totalSupply}`)
           
