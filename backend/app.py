@@ -1264,7 +1264,7 @@ def create_creator_token():
                               current_price, market_cap, youtube_channel_title, youtube_subscribers,
                               bonding_curve_config, bonding_curve_state, platform, content_url,
                               content_id, content_description, content_thumbnail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             content_id,  # token_id (unique identifier - content_id)
             asset_id,    # metadata_address (Aptos FA metadata object address)
