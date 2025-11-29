@@ -3996,17 +3996,17 @@ def get_youtube_videos():
                 channel = channels_response['items'][0]
             
         # Get tokenized videos from database
-            init_db()
+        init_db()
         conn = sqlite3.connect('creatorvault.db')
         cursor = conn.cursor()
-            
-            tokenized_videos = {}
-            try:
-        # Check both content_id and content_url for YouTube videos
-        cursor.execute('''
-                    SELECT content_id, content_url, token_id, token_name, token_symbol 
-            FROM tokens 
-            WHERE platform = ? AND (content_id IS NOT NULL OR content_url IS NOT NULL)
+        
+        tokenized_videos = {}
+        try:
+            # Check both content_id and content_url for YouTube videos
+            cursor.execute('''
+                SELECT content_id, content_url, token_id, token_name, token_symbol 
+                FROM tokens 
+                WHERE platform = ? AND (content_id IS NOT NULL OR content_url IS NOT NULL)
         ''', ('youtube',))
         
         for row in cursor.fetchall():
