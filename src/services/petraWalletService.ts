@@ -426,14 +426,18 @@ export async function getCurrentSupply(creatorAddress: string): Promise<number> 
     })
 
     if (!response.ok) {
-      throw new Error('Failed to fetch current supply')
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch current supply: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch current supply: ${response.status}`)
     }
 
     const data = await response.json()
-    return parseInt(data[0] || '0', 10)
+    const supply = parseInt(data[0] || '0', 10)
+    console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply}`)
+    return supply
   } catch (error) {
     console.error('❌ Error getting current supply:', error)
-    return 0
+    throw error // Re-throw so caller can handle it
   }
 }
 
@@ -453,14 +457,18 @@ export async function getTotalSupply(creatorAddress: string): Promise<number> {
     })
 
     if (!response.ok) {
-      throw new Error('Failed to fetch total supply')
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch total supply: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch total supply: ${response.status}`)
     }
 
     const data = await response.json()
-    return parseInt(data[0] || '0', 10)
+    const totalSupply = parseInt(data[0] || '0', 10)
+    console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply}`)
+    return totalSupply
   } catch (error) {
     console.error('❌ Error getting total supply:', error)
-    return 0
+    throw error // Re-throw so caller can handle it
   }
 }
 
