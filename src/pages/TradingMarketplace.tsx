@@ -760,7 +760,19 @@ const TradingMarketplace: React.FC = () => {
             // The backend transfers tokens from creator to buyer automatically
             // No need for additional transfer here
           } catch (error) {
-            console.error('❌ Final supply check failed:', error)
+            // This catch block is for supply check errors, not transaction errors
+            // Transaction errors should be caught in the outer try-catch
+            console.error('❌ Supply check or transaction failed:', error)
+            
+            // Check if it's a transaction error (from buyTokensWithContract)
+            if (error && typeof error === 'object' && 'message' in error) {
+              const errorMessage = (error as any).message || String(error)
+              if (errorMessage.includes('PetraApiError') || errorMessage.includes('transaction') || errorMessage.includes('rejected')) {
+                // This is a transaction error, not a supply check error
+                throw error // Re-throw to be caught by outer catch
+              }
+            }
+            
             setTradeError(
               `Failed to verify token supply before transaction. ` +
               `Please refresh and try again. Error: ${error instanceof Error ? error.message : 'Unknown error'}`

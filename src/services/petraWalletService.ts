@@ -238,8 +238,9 @@ export async function buyTokensWithContract({
         ]
       }
 
-      // Sign and submit transaction
-      const response = await petraWallet.signAndSubmitTransaction(transaction)
+      // Sign and submit transaction (using new API format)
+      // Petra wallet now requires { payload } instead of just payload
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
       const txId = response.hash
 
       console.log(`✅ Buy tokens transaction submitted: ${txId}`)
