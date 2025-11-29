@@ -1007,3 +1007,1623 @@ export async function getMetadataAddress(creatorAddress: string, tokenId: string
     throw error
   }
 }
+
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.info) {
+        errorMessage = error.info
+      } else if (error?.code) {
+        errorMessage = `Error code: ${error.code}`
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      // Check for specific error types
+      if (errorMessage.includes('E_INSUFFICIENT_BALANCE') || errorMessage.includes('0x10002')) {
+        errorMessage = 'Insufficient token supply. The transaction would exceed the total supply limit.'
+      } else if (errorMessage.includes('E_INSUFFICIENT_PAYMENT') || errorMessage.includes('0x10003')) {
+        errorMessage = 'Slippage protection: You would receive fewer tokens than expected. Please try again.'
+      } else if (errorMessage.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) {
+        errorMessage = 'Insufficient APT balance for transaction fees. Please add more APT to your wallet.'
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
+        errorMessage = 'Transaction was rejected. Please approve the transaction in your wallet.'
+      } else if (error?.code === 4001 || errorMessage.includes('4001')) {
+        errorMessage = 'Transaction failed (Error 4001): Invalid transaction amount or estimate. Please try a smaller amount.'
+      }
+      
+      const detailedError = new Error(errorMessage)
+      detailedError.name = error?.name || 'PetraApiError'
+      // Preserve error code for better error handling
+      if (error?.code) {
+        (detailedError as any).code = error.code
+      }
+      throw detailedError
+    }
+  })
+}
+
+/**
+ * Transfer tokens between accounts using Move contract
+ */
+export async function transferTokensWithContract({
+  sender,
+  petraWallet,
+  creatorAddress,
+  recipient,
+  amount
+}: {
+  sender: string
+  petraWallet: any
+  creatorAddress: string
+  recipient: string
+  amount: number
+}): Promise<string> {
+  return executeWithQueue(async () => {
+    try {
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
+      }
+
+      const safeAmount = Math.round(amount)
+      if (!Number.isSafeInteger(safeAmount) || safeAmount <= 0) {
+        throw new Error(`Invalid amount: ${amount}`)
+      }
+
+      const transaction = {
+        type: "entry_function_payload",
+        function: `${MODULE_ADDRESS}::creator_token::transfer`,
+        type_arguments: [],
+        arguments: [
+          creatorAddress, // creator: address
+          recipient, // recipient: address
+          safeAmount.toString() // amount: u64
+        ]
+      }
+
+      // Sign and submit transaction (using new API format)
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
+      await waitForTransaction(response.hash)
+      return response.hash
+    } catch (error: any) {
+      console.error('❌ Error transferring tokens:', error)
+      throw error
+    }
+  })
+}
+
+/**
+ * Get token balance for an account
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getTokenBalance(
+  creatorAddress: string,
+  tokenId: string,
+  accountAddress: string
+): Promise<number> {
+  // Convert tokenId string to hex-encoded bytes (Aptos expects hex string for vector<u8>)
+  const tokenIdBytes = new TextEncoder().encode(tokenId)
+  const tokenIdHex = '0x' + Array.from(tokenIdBytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_balance`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex, accountAddress]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      return parseInt(data[0] || '0', 10)
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error('Failed to fetch token balance')
+      }
+    } else {
+      throw new Error('Failed to fetch token balance')
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_balance`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex, accountAddress]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch token balance from old contract')
+    }
+
+    const data = await response.json()
+    return parseInt(data[0] || '0', 10)
+  } catch (error) {
+    console.error('❌ Error getting token balance from both contracts:', error)
+    return 0 // Return 0 instead of throwing for balance (it's OK if it fails)
+  }
+}
+
+/**
+ * Get current supply of a token
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getCurrentSupply(creatorAddress: string, tokenId: string): Promise<number> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_current_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      const supply = parseInt(data[0] || '0', 10)
+      console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply} (new contract)`)
+      return supply
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch current supply: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch current supply: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_current_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch current supply from old contract: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch current supply: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const supply = parseInt(data[0] || '0', 10)
+    console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply} (old contract)`)
+    return supply
+  } catch (error) {
+    console.error('❌ Error getting current supply from both contracts:', error)
+    throw error
+  }
+}
+
+/**
+ * Get total supply of a token
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getTotalSupply(creatorAddress: string, tokenId: string): Promise<number> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_total_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      const totalSupply = parseInt(data[0] || '0', 10)
+      console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply} (new contract)`)
+      return totalSupply
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch total supply: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch total supply: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_total_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch total supply from old contract: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch total supply: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const totalSupply = parseInt(data[0] || '0', 10)
+    console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply} (old contract)`)
+    return totalSupply
+  } catch (error) {
+    console.error('❌ Error getting total supply from both contracts:', error)
+    throw error
+  }
+}
+
+/**
+ * Get APT reserve for a token
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getAptReserve(creatorAddress: string, tokenId: string): Promise<number> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_apt_reserve`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      // Convert octas to APT (1 APT = 100000000 octas)
+      const octas = parseInt(data[0] || '0', 10)
+      return octas / 100000000
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error('Failed to fetch APT reserve')
+      }
+    } else {
+      throw new Error('Failed to fetch APT reserve')
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_apt_reserve`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch APT reserve from old contract')
+    }
+
+    const data = await response.json()
+    // Convert octas to APT (1 APT = 100000000 octas)
+    const octas = parseInt(data[0] || '0', 10)
+    return octas / 100000000
+  } catch (error) {
+    console.error('❌ Error getting APT reserve from both contracts:', error)
+    return 0 // Return 0 instead of throwing for reserve (it's OK if it fails)
+  }
+}
+
+/**
+ * Place a bet on a prediction market (send APTOS payment)
+ * This sends APTOS to the prediction pool
+ */
+export async function placePredictionBet({
+  bettor,
+  petraWallet,
+  recipientAddress, // Address to receive the bet (prediction pool or contract)
+  amount, // APT amount to bet
+  predictionId, // For transaction memo
+  side // 'YES' or 'NO'
+}: {
+  bettor: string
+  petraWallet: any
+  recipientAddress: string
+  amount: number // APT amount
+  predictionId: string
+  side: 'YES' | 'NO'
+}): Promise<{ txId: string }> {
+  return executeWithQueue(async () => {
+    try {
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
+      }
+
+      // Convert APT to octas (1 APT = 100000000 octas)
+      const amountOctas = Math.round(amount * 100000000)
+      if (!Number.isSafeInteger(amountOctas) || amountOctas <= 0) {
+        throw new Error(`Invalid bet amount: ${amount} APT`)
+      }
+
+      // Build transaction to transfer APT
+      const transaction = {
+        type: "entry_function_payload",
+        function: "0x1::coin::transfer",
+        type_arguments: ["0x1::aptos_coin::AptosCoin"],
+        arguments: [
+          recipientAddress,
+          amountOctas.toString()
+        ]
+      }
+
+      // Sign and submit transaction
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
+      const txId = response.hash
+
+      console.log(`✅ Prediction bet placed: ${side} ${amount} APTOS on ${predictionId}, TX: ${txId}`)
+
+      // Wait for confirmation
+      await waitForTransaction(txId)
+
+      return { txId }
+    } catch (error: any) {
+      console.error('❌ Error placing prediction bet:', error)
+      
+      // Extract detailed error message
+      let errorMessage = 'Transaction failed'
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.info) {
+        errorMessage = error.info
+      } else if (error?.code) {
+        errorMessage = `Error code: ${error.code}`
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      // Check for specific error types
+      if (errorMessage.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) {
+        errorMessage = 'Insufficient APT balance for transaction fees. Please add more APT to your wallet.'
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
+        errorMessage = 'Transaction was rejected. Please approve the transaction in your wallet.'
+      } else if (error?.code === 4001 || errorMessage.includes('4001')) {
+        errorMessage = 'Transaction failed (Error 4001): Invalid transaction. Please try again.'
+      }
+      
+      const detailedError = new Error(errorMessage)
+      detailedError.name = error?.name || 'PetraApiError'
+      if (error?.code) {
+        (detailedError as any).code = error.code
+      }
+      throw detailedError
+    }
+  })
+}
+
+/**
+ * Get metadata address for a token
+ */
+export async function getMetadataAddress(creatorAddress: string, tokenId: string): Promise<string> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_metadata_address`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      // Extract object address from the response
+      const metadataObj = data[0]
+      if (typeof metadataObj === 'object' && metadataObj.inner) {
+        return metadataObj.inner
+      } else if (typeof metadataObj === 'string') {
+        return metadataObj
+      }
+      return creatorAddress
+    }
+    
+    // If 400 error, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch metadata address: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch metadata address: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_metadata_address`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch metadata address from old contract: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const metadataObj = data[0]
+    if (typeof metadataObj === 'object' && metadataObj.inner) {
+      return metadataObj.inner
+    } else if (typeof metadataObj === 'string') {
+      return metadataObj
+    }
+    return creatorAddress
+  } catch (error) {
+    console.error('❌ Error getting metadata address from both contracts:', error)
+    throw error
+  }
+}
+
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.info) {
+        errorMessage = error.info
+      } else if (error?.code) {
+        errorMessage = `Error code: ${error.code}`
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      // Check for specific error types
+      if (errorMessage.includes('E_INSUFFICIENT_BALANCE') || errorMessage.includes('0x10002')) {
+        errorMessage = 'Insufficient token supply. The transaction would exceed the total supply limit.'
+      } else if (errorMessage.includes('E_INSUFFICIENT_PAYMENT') || errorMessage.includes('0x10003')) {
+        errorMessage = 'Slippage protection: You would receive fewer tokens than expected. Please try again.'
+      } else if (errorMessage.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) {
+        errorMessage = 'Insufficient APT balance for transaction fees. Please add more APT to your wallet.'
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
+        errorMessage = 'Transaction was rejected. Please approve the transaction in your wallet.'
+      } else if (error?.code === 4001 || errorMessage.includes('4001')) {
+        errorMessage = 'Transaction failed (Error 4001): Invalid transaction amount or estimate. Please try a smaller amount.'
+      }
+      
+      const detailedError = new Error(errorMessage)
+      detailedError.name = error?.name || 'PetraApiError'
+      // Preserve error code for better error handling
+      if (error?.code) {
+        (detailedError as any).code = error.code
+      }
+      throw detailedError
+    }
+  })
+}
+
+/**
+ * Transfer tokens between accounts using Move contract
+ */
+export async function transferTokensWithContract({
+  sender,
+  petraWallet,
+  creatorAddress,
+  recipient,
+  amount
+}: {
+  sender: string
+  petraWallet: any
+  creatorAddress: string
+  recipient: string
+  amount: number
+}): Promise<string> {
+  return executeWithQueue(async () => {
+    try {
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
+      }
+
+      const safeAmount = Math.round(amount)
+      if (!Number.isSafeInteger(safeAmount) || safeAmount <= 0) {
+        throw new Error(`Invalid amount: ${amount}`)
+      }
+
+      const transaction = {
+        type: "entry_function_payload",
+        function: `${MODULE_ADDRESS}::creator_token::transfer`,
+        type_arguments: [],
+        arguments: [
+          creatorAddress, // creator: address
+          recipient, // recipient: address
+          safeAmount.toString() // amount: u64
+        ]
+      }
+
+      // Sign and submit transaction (using new API format)
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
+      await waitForTransaction(response.hash)
+      return response.hash
+    } catch (error: any) {
+      console.error('❌ Error transferring tokens:', error)
+      throw error
+    }
+  })
+}
+
+/**
+ * Get token balance for an account
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getTokenBalance(
+  creatorAddress: string,
+  tokenId: string,
+  accountAddress: string
+): Promise<number> {
+  // Convert tokenId string to hex-encoded bytes (Aptos expects hex string for vector<u8>)
+  const tokenIdBytes = new TextEncoder().encode(tokenId)
+  const tokenIdHex = '0x' + Array.from(tokenIdBytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_balance`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex, accountAddress]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      return parseInt(data[0] || '0', 10)
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error('Failed to fetch token balance')
+      }
+    } else {
+      throw new Error('Failed to fetch token balance')
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_balance`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex, accountAddress]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch token balance from old contract')
+    }
+
+    const data = await response.json()
+    return parseInt(data[0] || '0', 10)
+  } catch (error) {
+    console.error('❌ Error getting token balance from both contracts:', error)
+    return 0 // Return 0 instead of throwing for balance (it's OK if it fails)
+  }
+}
+
+/**
+ * Get current supply of a token
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getCurrentSupply(creatorAddress: string, tokenId: string): Promise<number> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_current_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      const supply = parseInt(data[0] || '0', 10)
+      console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply} (new contract)`)
+      return supply
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch current supply: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch current supply: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_current_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch current supply from old contract: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch current supply: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const supply = parseInt(data[0] || '0', 10)
+    console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply} (old contract)`)
+    return supply
+  } catch (error) {
+    console.error('❌ Error getting current supply from both contracts:', error)
+    throw error
+  }
+}
+
+/**
+ * Get total supply of a token
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getTotalSupply(creatorAddress: string, tokenId: string): Promise<number> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_total_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      const totalSupply = parseInt(data[0] || '0', 10)
+      console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply} (new contract)`)
+      return totalSupply
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch total supply: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch total supply: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_total_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch total supply from old contract: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch total supply: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const totalSupply = parseInt(data[0] || '0', 10)
+    console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply} (old contract)`)
+    return totalSupply
+  } catch (error) {
+    console.error('❌ Error getting total supply from both contracts:', error)
+    throw error
+  }
+}
+
+/**
+ * Get APT reserve for a token
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getAptReserve(creatorAddress: string, tokenId: string): Promise<number> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_apt_reserve`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      // Convert octas to APT (1 APT = 100000000 octas)
+      const octas = parseInt(data[0] || '0', 10)
+      return octas / 100000000
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error('Failed to fetch APT reserve')
+      }
+    } else {
+      throw new Error('Failed to fetch APT reserve')
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_apt_reserve`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch APT reserve from old contract')
+    }
+
+    const data = await response.json()
+    // Convert octas to APT (1 APT = 100000000 octas)
+    const octas = parseInt(data[0] || '0', 10)
+    return octas / 100000000
+  } catch (error) {
+    console.error('❌ Error getting APT reserve from both contracts:', error)
+    return 0 // Return 0 instead of throwing for reserve (it's OK if it fails)
+  }
+}
+
+/**
+ * Place a bet on a prediction market (send APTOS payment)
+ * This sends APTOS to the prediction pool
+ */
+export async function placePredictionBet({
+  bettor,
+  petraWallet,
+  recipientAddress, // Address to receive the bet (prediction pool or contract)
+  amount, // APT amount to bet
+  predictionId, // For transaction memo
+  side // 'YES' or 'NO'
+}: {
+  bettor: string
+  petraWallet: any
+  recipientAddress: string
+  amount: number // APT amount
+  predictionId: string
+  side: 'YES' | 'NO'
+}): Promise<{ txId: string }> {
+  return executeWithQueue(async () => {
+    try {
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
+      }
+
+      // Convert APT to octas (1 APT = 100000000 octas)
+      const amountOctas = Math.round(amount * 100000000)
+      if (!Number.isSafeInteger(amountOctas) || amountOctas <= 0) {
+        throw new Error(`Invalid bet amount: ${amount} APT`)
+      }
+
+      // Build transaction to transfer APT
+      const transaction = {
+        type: "entry_function_payload",
+        function: "0x1::coin::transfer",
+        type_arguments: ["0x1::aptos_coin::AptosCoin"],
+        arguments: [
+          recipientAddress,
+          amountOctas.toString()
+        ]
+      }
+
+      // Sign and submit transaction
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
+      const txId = response.hash
+
+      console.log(`✅ Prediction bet placed: ${side} ${amount} APTOS on ${predictionId}, TX: ${txId}`)
+
+      // Wait for confirmation
+      await waitForTransaction(txId)
+
+      return { txId }
+    } catch (error: any) {
+      console.error('❌ Error placing prediction bet:', error)
+      
+      // Extract detailed error message
+      let errorMessage = 'Transaction failed'
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.info) {
+        errorMessage = error.info
+      } else if (error?.code) {
+        errorMessage = `Error code: ${error.code}`
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      // Check for specific error types
+      if (errorMessage.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) {
+        errorMessage = 'Insufficient APT balance for transaction fees. Please add more APT to your wallet.'
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
+        errorMessage = 'Transaction was rejected. Please approve the transaction in your wallet.'
+      } else if (error?.code === 4001 || errorMessage.includes('4001')) {
+        errorMessage = 'Transaction failed (Error 4001): Invalid transaction. Please try again.'
+      }
+      
+      const detailedError = new Error(errorMessage)
+      detailedError.name = error?.name || 'PetraApiError'
+      if (error?.code) {
+        (detailedError as any).code = error.code
+      }
+      throw detailedError
+    }
+  })
+}
+
+/**
+ * Get metadata address for a token
+ */
+export async function getMetadataAddress(creatorAddress: string, tokenId: string): Promise<string> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_metadata_address`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      // Extract object address from the response
+      const metadataObj = data[0]
+      if (typeof metadataObj === 'object' && metadataObj.inner) {
+        return metadataObj.inner
+      } else if (typeof metadataObj === 'string') {
+        return metadataObj
+      }
+      return creatorAddress
+    }
+    
+    // If 400 error, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch metadata address: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch metadata address: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_metadata_address`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch metadata address from old contract: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const metadataObj = data[0]
+    if (typeof metadataObj === 'object' && metadataObj.inner) {
+      return metadataObj.inner
+    } else if (typeof metadataObj === 'string') {
+      return metadataObj
+    }
+    return creatorAddress
+  } catch (error) {
+    console.error('❌ Error getting metadata address from both contracts:', error)
+    throw error
+  }
+}
+
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.info) {
+        errorMessage = error.info
+      } else if (error?.code) {
+        errorMessage = `Error code: ${error.code}`
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      // Check for specific error types
+      if (errorMessage.includes('E_INSUFFICIENT_BALANCE') || errorMessage.includes('0x10002')) {
+        errorMessage = 'Insufficient token supply. The transaction would exceed the total supply limit.'
+      } else if (errorMessage.includes('E_INSUFFICIENT_PAYMENT') || errorMessage.includes('0x10003')) {
+        errorMessage = 'Slippage protection: You would receive fewer tokens than expected. Please try again.'
+      } else if (errorMessage.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) {
+        errorMessage = 'Insufficient APT balance for transaction fees. Please add more APT to your wallet.'
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
+        errorMessage = 'Transaction was rejected. Please approve the transaction in your wallet.'
+      } else if (error?.code === 4001 || errorMessage.includes('4001')) {
+        errorMessage = 'Transaction failed (Error 4001): Invalid transaction amount or estimate. Please try a smaller amount.'
+      }
+      
+      const detailedError = new Error(errorMessage)
+      detailedError.name = error?.name || 'PetraApiError'
+      // Preserve error code for better error handling
+      if (error?.code) {
+        (detailedError as any).code = error.code
+      }
+      throw detailedError
+    }
+  })
+}
+
+/**
+ * Transfer tokens between accounts using Move contract
+ */
+export async function transferTokensWithContract({
+  sender,
+  petraWallet,
+  creatorAddress,
+  recipient,
+  amount
+}: {
+  sender: string
+  petraWallet: any
+  creatorAddress: string
+  recipient: string
+  amount: number
+}): Promise<string> {
+  return executeWithQueue(async () => {
+    try {
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
+      }
+
+      const safeAmount = Math.round(amount)
+      if (!Number.isSafeInteger(safeAmount) || safeAmount <= 0) {
+        throw new Error(`Invalid amount: ${amount}`)
+      }
+
+      const transaction = {
+        type: "entry_function_payload",
+        function: `${MODULE_ADDRESS}::creator_token::transfer`,
+        type_arguments: [],
+        arguments: [
+          creatorAddress, // creator: address
+          recipient, // recipient: address
+          safeAmount.toString() // amount: u64
+        ]
+      }
+
+      // Sign and submit transaction (using new API format)
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
+      await waitForTransaction(response.hash)
+      return response.hash
+    } catch (error: any) {
+      console.error('❌ Error transferring tokens:', error)
+      throw error
+    }
+  })
+}
+
+/**
+ * Get token balance for an account
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getTokenBalance(
+  creatorAddress: string,
+  tokenId: string,
+  accountAddress: string
+): Promise<number> {
+  // Convert tokenId string to hex-encoded bytes (Aptos expects hex string for vector<u8>)
+  const tokenIdBytes = new TextEncoder().encode(tokenId)
+  const tokenIdHex = '0x' + Array.from(tokenIdBytes)
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_balance`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex, accountAddress]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      return parseInt(data[0] || '0', 10)
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error('Failed to fetch token balance')
+      }
+    } else {
+      throw new Error('Failed to fetch token balance')
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_balance`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex, accountAddress]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch token balance from old contract')
+    }
+
+    const data = await response.json()
+    return parseInt(data[0] || '0', 10)
+  } catch (error) {
+    console.error('❌ Error getting token balance from both contracts:', error)
+    return 0 // Return 0 instead of throwing for balance (it's OK if it fails)
+  }
+}
+
+/**
+ * Get current supply of a token
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getCurrentSupply(creatorAddress: string, tokenId: string): Promise<number> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_current_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      const supply = parseInt(data[0] || '0', 10)
+      console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply} (new contract)`)
+      return supply
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch current supply: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch current supply: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_current_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch current supply from old contract: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch current supply: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const supply = parseInt(data[0] || '0', 10)
+    console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply} (old contract)`)
+    return supply
+  } catch (error) {
+    console.error('❌ Error getting current supply from both contracts:', error)
+    throw error
+  }
+}
+
+/**
+ * Get total supply of a token
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getTotalSupply(creatorAddress: string, tokenId: string): Promise<number> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_total_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      const totalSupply = parseInt(data[0] || '0', 10)
+      console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply} (new contract)`)
+      return totalSupply
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch total supply: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch total supply: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_total_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch total supply from old contract: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch total supply: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const totalSupply = parseInt(data[0] || '0', 10)
+    console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply} (old contract)`)
+    return totalSupply
+  } catch (error) {
+    console.error('❌ Error getting total supply from both contracts:', error)
+    throw error
+  }
+}
+
+/**
+ * Get APT reserve for a token
+ * Tries new contract first, then falls back to old contract if token doesn't exist
+ */
+export async function getAptReserve(creatorAddress: string, tokenId: string): Promise<number> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_apt_reserve`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      // Convert octas to APT (1 APT = 100000000 octas)
+      const octas = parseInt(data[0] || '0', 10)
+      return octas / 100000000
+    }
+    
+    // If 400 error and it's a resource not found, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error('Failed to fetch APT reserve')
+      }
+    } else {
+      throw new Error('Failed to fetch APT reserve')
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_apt_reserve`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch APT reserve from old contract')
+    }
+
+    const data = await response.json()
+    // Convert octas to APT (1 APT = 100000000 octas)
+    const octas = parseInt(data[0] || '0', 10)
+    return octas / 100000000
+  } catch (error) {
+    console.error('❌ Error getting APT reserve from both contracts:', error)
+    return 0 // Return 0 instead of throwing for reserve (it's OK if it fails)
+  }
+}
+
+/**
+ * Place a bet on a prediction market (send APTOS payment)
+ * This sends APTOS to the prediction pool
+ */
+export async function placePredictionBet({
+  bettor,
+  petraWallet,
+  recipientAddress, // Address to receive the bet (prediction pool or contract)
+  amount, // APT amount to bet
+  predictionId, // For transaction memo
+  side // 'YES' or 'NO'
+}: {
+  bettor: string
+  petraWallet: any
+  recipientAddress: string
+  amount: number // APT amount
+  predictionId: string
+  side: 'YES' | 'NO'
+}): Promise<{ txId: string }> {
+  return executeWithQueue(async () => {
+    try {
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
+      }
+
+      // Convert APT to octas (1 APT = 100000000 octas)
+      const amountOctas = Math.round(amount * 100000000)
+      if (!Number.isSafeInteger(amountOctas) || amountOctas <= 0) {
+        throw new Error(`Invalid bet amount: ${amount} APT`)
+      }
+
+      // Build transaction to transfer APT
+      const transaction = {
+        type: "entry_function_payload",
+        function: "0x1::coin::transfer",
+        type_arguments: ["0x1::aptos_coin::AptosCoin"],
+        arguments: [
+          recipientAddress,
+          amountOctas.toString()
+        ]
+      }
+
+      // Sign and submit transaction
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
+      const txId = response.hash
+
+      console.log(`✅ Prediction bet placed: ${side} ${amount} APTOS on ${predictionId}, TX: ${txId}`)
+
+      // Wait for confirmation
+      await waitForTransaction(txId)
+
+      return { txId }
+    } catch (error: any) {
+      console.error('❌ Error placing prediction bet:', error)
+      
+      // Extract detailed error message
+      let errorMessage = 'Transaction failed'
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.info) {
+        errorMessage = error.info
+      } else if (error?.code) {
+        errorMessage = `Error code: ${error.code}`
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      // Check for specific error types
+      if (errorMessage.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) {
+        errorMessage = 'Insufficient APT balance for transaction fees. Please add more APT to your wallet.'
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
+        errorMessage = 'Transaction was rejected. Please approve the transaction in your wallet.'
+      } else if (error?.code === 4001 || errorMessage.includes('4001')) {
+        errorMessage = 'Transaction failed (Error 4001): Invalid transaction. Please try again.'
+      }
+      
+      const detailedError = new Error(errorMessage)
+      detailedError.name = error?.name || 'PetraApiError'
+      if (error?.code) {
+        (detailedError as any).code = error.code
+      }
+      throw detailedError
+    }
+  })
+}
+
+/**
+ * Get metadata address for a token
+ */
+export async function getMetadataAddress(creatorAddress: string, tokenId: string): Promise<string> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_metadata_address`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      // Extract object address from the response
+      const metadataObj = data[0]
+      if (typeof metadataObj === 'object' && metadataObj.inner) {
+        return metadataObj.inner
+      } else if (typeof metadataObj === 'string') {
+        return metadataObj
+      }
+      return creatorAddress
+    }
+    
+    // If 400 error, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch metadata address: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch metadata address: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_metadata_address`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch metadata address from old contract: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const metadataObj = data[0]
+    if (typeof metadataObj === 'object' && metadataObj.inner) {
+      return metadataObj.inner
+    } else if (typeof metadataObj === 'string') {
+      return metadataObj
+    }
+    return creatorAddress
+  } catch (error) {
+    console.error('❌ Error getting metadata address from both contracts:', error)
+    throw error
+  }
+}

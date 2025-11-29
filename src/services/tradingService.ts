@@ -301,3 +301,229 @@ export class TradingService {
   }
 }
 
+
+      const result = await response.json()
+      if (result.success) {
+        return result.token
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching token details:', error)
+      return null
+    }
+  }
+}
+
+
+    tokenIdentifier: number | string,
+    tradeType: 'buy' | 'sell',
+    transactionId: string,
+    traderAddress: string,
+    tokenAmount: number,
+    aptAmount: number,
+    currentSupply?: number,
+    aptReserve?: number
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/sync-contract-trade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          asa_id: typeof tokenIdentifier === 'number' ? tokenIdentifier : undefined,
+          token_id: typeof tokenIdentifier === 'string' ? tokenIdentifier : undefined,
+          trade_type: tradeType,
+          transaction_id: transactionId,
+          trader_address: traderAddress,
+          token_amount: tokenAmount,
+          apt_amount: aptAmount,
+          current_supply: currentSupply,
+          apt_reserve: aptReserve
+        })
+      })
+
+      const data = await response.json()
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to sync contract trade')
+      }
+
+      return { success: true }
+    } catch (error: any) {
+      console.error('Error syncing contract trade:', error)
+      return { success: false, error: error.message || 'Unknown error' }
+    }
+  }
+
+  /**
+   * Get token details including bonding curve state
+   * Supports both asa_id (number) for Algorand and token_id (string) for Aptos
+   */
+  static async getTokenDetails(tokenIdentifier: number | string): Promise<any> {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/token/${tokenIdentifier}`)
+      const result = await response.json()
+      if (result.success) {
+        return result.token
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching token details:', error)
+      return null
+    }
+  }
+}
+
+
+      const result = await response.json()
+      if (result.success) {
+        return result.token
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching token details:', error)
+      return null
+    }
+  }
+}
+
+
+    tokenIdentifier: number | string,
+    tradeType: 'buy' | 'sell',
+    transactionId: string,
+    traderAddress: string,
+    tokenAmount: number,
+    aptAmount: number,
+    currentSupply?: number,
+    aptReserve?: number
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/sync-contract-trade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          asa_id: typeof tokenIdentifier === 'number' ? tokenIdentifier : undefined,
+          token_id: typeof tokenIdentifier === 'string' ? tokenIdentifier : undefined,
+          trade_type: tradeType,
+          transaction_id: transactionId,
+          trader_address: traderAddress,
+          token_amount: tokenAmount,
+          apt_amount: aptAmount,
+          current_supply: currentSupply,
+          apt_reserve: aptReserve
+        })
+      })
+
+      const data = await response.json()
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to sync contract trade')
+      }
+
+      return { success: true }
+    } catch (error: any) {
+      console.error('Error syncing contract trade:', error)
+      return { success: false, error: error.message || 'Unknown error' }
+    }
+  }
+
+  /**
+   * Get token details including bonding curve state
+   * Supports both asa_id (number) for Algorand and token_id (string) for Aptos
+   */
+  static async getTokenDetails(tokenIdentifier: number | string): Promise<any> {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/token/${tokenIdentifier}`)
+      const result = await response.json()
+      if (result.success) {
+        return result.token
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching token details:', error)
+      return null
+    }
+  }
+}
+
+
+      const result = await response.json()
+      if (result.success) {
+        return result.token
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching token details:', error)
+      return null
+    }
+  }
+}
+
+
+    tokenIdentifier: number | string,
+    tradeType: 'buy' | 'sell',
+    transactionId: string,
+    traderAddress: string,
+    tokenAmount: number,
+    aptAmount: number,
+    currentSupply?: number,
+    aptReserve?: number
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/sync-contract-trade`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          asa_id: typeof tokenIdentifier === 'number' ? tokenIdentifier : undefined,
+          token_id: typeof tokenIdentifier === 'string' ? tokenIdentifier : undefined,
+          trade_type: tradeType,
+          transaction_id: transactionId,
+          trader_address: traderAddress,
+          token_amount: tokenAmount,
+          apt_amount: aptAmount,
+          current_supply: currentSupply,
+          apt_reserve: aptReserve
+        })
+      })
+
+      const data = await response.json()
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to sync contract trade')
+      }
+
+      return { success: true }
+    } catch (error: any) {
+      console.error('Error syncing contract trade:', error)
+      return { success: false, error: error.message || 'Unknown error' }
+    }
+  }
+
+  /**
+   * Get token details including bonding curve state
+   * Supports both asa_id (number) for Algorand and token_id (string) for Aptos
+   */
+  static async getTokenDetails(tokenIdentifier: number | string): Promise<any> {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/token/${tokenIdentifier}`)
+      const result = await response.json()
+      if (result.success) {
+        return result.token
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching token details:', error)
+      return null
+    }
+  }
+}
+
+
+      const result = await response.json()
+      if (result.success) {
+        return result.token
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching token details:', error)
+      return null
+    }
+  }
+}
+

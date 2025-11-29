@@ -3345,14 +3345,24 @@ def bonding_curve_estimate():
                             current_reserve = estimated_reserve
         except ValueError:
             # Aptos token - fetch actual supply and reserve from contract
-            # Get creator address from token data (token_identifier is a string for Aptos tokens)
-            cursor.execute('SELECT creator FROM tokens WHERE token_id = ?', (token_identifier,))
+            # Try multiple ways to find the token: token_id, metadata_address, or content_id
+            creator_address = None
+            content_id = None
             
+            # First try: token_id (content_id)
+            cursor.execute('SELECT creator, content_id FROM tokens WHERE token_id = ?', (token_identifier,))
             creator_row = cursor.fetchone()
+            
+            # Second try: metadata_address
+            if not creator_row:
+                cursor.execute('SELECT creator, content_id FROM tokens WHERE metadata_address = ?', (token_identifier,))
+                creator_row = cursor.fetchone()
+            
             if creator_row and creator_row[0]:
                 creator_address = creator_row[0]
-                # Fetch actual contract state
-                contract_supply, contract_reserve = fetch_aptos_contract_state(creator_address, token_identifier)
+                content_id = creator_row[1] or token_identifier  # Use content_id if available, otherwise token_identifier
+                # Fetch actual contract state using content_id (what the contract expects)
+                contract_supply, contract_reserve = fetch_aptos_contract_state(creator_address, content_id)
                 
                 if contract_supply is not None and contract_reserve is not None:
                     # Use contract state (most accurate)
@@ -3462,13 +3472,48 @@ def bonding_curve_estimate():
                     logger.info(f"✅ Re-estimated: Supply={current_supply}, Reserve={current_reserve}")
             
             # Final check: if still no supply, return error
+            # For Aptos tokens, try one more time to fetch from contract using content_id
             if current_supply <= 0 or current_reserve <= 0:
-                logger.warning(f"⚠️ Sell estimate failed: Supply={current_supply}, Reserve={current_reserve}, Trades={trade_count}")
-                conn.close()
-                return jsonify({
-                    "success": False,
-                    "error": "No tokens in circulation to sell"
-                }), 400
+                # Try to get creator and content_id for Aptos tokens
+                try:
+                    asa_id_int = int(token_identifier)
+                    is_aptos = False
+                except ValueError:
+                    is_aptos = True
+                    # Try to get creator and content_id
+                    cursor.execute('SELECT creator, content_id FROM tokens WHERE token_id = ? OR metadata_address = ?', (token_identifier, token_identifier))
+                    creator_row = cursor.fetchone()
+                    if creator_row and creator_row[0]:
+                        creator_address = creator_row[0]
+                        content_id = creator_row[1] or token_identifier
+                        # Last attempt: fetch from contract using content_id
+                        contract_supply, contract_reserve = fetch_aptos_contract_state(creator_address, content_id)
+                        if contract_supply is not None and contract_reserve is not None and contract_supply > 0:
+                            current_supply = contract_supply
+                            current_reserve = contract_reserve
+                            logger.info(f"✅ Last-chance contract fetch succeeded: supply={current_supply}, reserve={contract_reserve}")
+                        else:
+                            logger.warning(f"⚠️ Sell estimate failed: Supply={current_supply}, Reserve={current_reserve}, Trades={trade_count}, Contract fetch failed")
+                            conn.close()
+                            return jsonify({
+                                "success": False,
+                                "error": "No tokens in circulation to sell. The token may need to be initialized or the contract state may be unavailable."
+                            }), 400
+                    else:
+                        logger.warning(f"⚠️ Sell estimate failed: Supply={current_supply}, Reserve={current_reserve}, Trades={trade_count}, Creator not found")
+                        conn.close()
+                        return jsonify({
+                            "success": False,
+                            "error": "No tokens in circulation to sell"
+                        }), 400
+                else:
+                    # Legacy Algorand token - return error
+                    logger.warning(f"⚠️ Sell estimate failed: Supply={current_supply}, Reserve={current_reserve}, Trades={trade_count}")
+                    conn.close()
+                    return jsonify({
+                        "success": False,
+                        "error": "No tokens in circulation to sell"
+                    }), 400
             
             current_price_apt = current_reserve / current_supply
             algo_received = token_amount * current_price_apt

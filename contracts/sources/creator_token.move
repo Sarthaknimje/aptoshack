@@ -370,3 +370,437 @@ module creatorvault::creator_token {
         table::contains(&creator_tokens.tokens, token_id)
     }
 }
+
+    /// Transfer tokens between accounts
+    entry fun transfer(
+        sender: &signer,
+        creator: address,
+        recipient: address,
+        amount: u64,
+    ) acquires TokenData {
+        let metadata = borrow_global<TokenData>(creator).metadata;
+        primary_fungible_store::transfer(sender, metadata, recipient, amount);
+    }
+
+    /// Burn tokens (only creator can call)
+    entry fun burn(
+        creator: &signer,
+        amount: u64,
+    ) acquires TokenData {
+        let creator_addr = signer::address_of(creator);
+        let token_data = borrow_global_mut<TokenData>(creator_addr);
+        
+        // Only creator can burn
+        assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
+        
+        // Check balance
+        let balance = primary_fungible_store::balance(creator_addr, token_data.metadata);
+        assert!(balance >= amount, error::invalid_argument(E_INSUFFICIENT_BALANCE));
+        
+        // Withdraw and burn
+        let fa = primary_fungible_store::withdraw(creator, token_data.metadata, amount);
+        fungible_asset::burn(&token_data.burn_ref, fa);
+        
+        // Update current supply
+        token_data.current_supply = token_data.current_supply - amount;
+    }
+}
+
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
+        primary_fungible_store::transfer(sender, token_data.metadata, recipient, amount);
+    }
+
+    /// Burn tokens (only creator can call)
+    entry fun burn(
+        creator: &signer,
+        token_id: vector<u8>,
+        amount: u64,
+    ) acquires CreatorTokens {
+        let creator_addr = signer::address_of(creator);
+        let creator_tokens = borrow_global_mut<CreatorTokens>(creator_addr);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow_mut(&mut creator_tokens.tokens, token_id);
+        
+        // Only creator can burn
+        assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
+        
+        // Validate amount
+        assert!(amount > 0, error::invalid_argument(E_INVALID_AMOUNT));
+        assert!(token_data.current_supply >= amount, error::invalid_argument(E_INSUFFICIENT_BALANCE));
+        
+        // Withdraw from creator
+        let fa = primary_fungible_store::withdraw(creator, token_data.metadata, amount);
+        
+        // Burn the tokens
+        fungible_asset::burn(&token_data.burn_ref, fa);
+        
+        // Update current supply
+        token_data.current_supply = token_data.current_supply - amount;
+    }
+
+    /// Get the metadata object address for a token
+    #[view]
+    public fun get_metadata_address(creator: address, token_id: vector<u8>): Object<Metadata> acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).metadata
+    }
+
+    /// Get token balance for an account
+    #[view]
+    public fun get_balance(creator: address, token_id: vector<u8>, account: address): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
+        primary_fungible_store::balance(account, token_data.metadata)
+    }
+
+    /// Get current supply
+    #[view]
+    public fun get_current_supply(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).current_supply
+    }
+
+    /// Get total supply
+    #[view]
+    public fun get_total_supply(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).total_supply
+    }
+
+    /// Get APT reserve
+    #[view]
+    public fun get_apt_reserve(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).apt_reserve
+    }
+
+    /// Get current price (reserve / supply)
+    #[view]
+    public fun get_current_price(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
+        let supply = token_data.current_supply;
+        if (supply == 0) {
+            return 0
+        };
+        // Price = reserve / supply (in octas per token)
+        token_data.apt_reserve / supply
+    }
+
+    /// Check if a token exists
+    #[view]
+    public fun token_exists(creator: address, token_id: vector<u8>): bool acquires CreatorTokens {
+        if (!exists<CreatorTokens>(creator)) {
+            return false
+        };
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        table::contains(&creator_tokens.tokens, token_id)
+    }
+}
+
+    /// Transfer tokens between accounts
+    entry fun transfer(
+        sender: &signer,
+        creator: address,
+        recipient: address,
+        amount: u64,
+    ) acquires TokenData {
+        let metadata = borrow_global<TokenData>(creator).metadata;
+        primary_fungible_store::transfer(sender, metadata, recipient, amount);
+    }
+
+    /// Burn tokens (only creator can call)
+    entry fun burn(
+        creator: &signer,
+        amount: u64,
+    ) acquires TokenData {
+        let creator_addr = signer::address_of(creator);
+        let token_data = borrow_global_mut<TokenData>(creator_addr);
+        
+        // Only creator can burn
+        assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
+        
+        // Check balance
+        let balance = primary_fungible_store::balance(creator_addr, token_data.metadata);
+        assert!(balance >= amount, error::invalid_argument(E_INSUFFICIENT_BALANCE));
+        
+        // Withdraw and burn
+        let fa = primary_fungible_store::withdraw(creator, token_data.metadata, amount);
+        fungible_asset::burn(&token_data.burn_ref, fa);
+        
+        // Update current supply
+        token_data.current_supply = token_data.current_supply - amount;
+    }
+}
+
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
+        primary_fungible_store::transfer(sender, token_data.metadata, recipient, amount);
+    }
+
+    /// Burn tokens (only creator can call)
+    entry fun burn(
+        creator: &signer,
+        token_id: vector<u8>,
+        amount: u64,
+    ) acquires CreatorTokens {
+        let creator_addr = signer::address_of(creator);
+        let creator_tokens = borrow_global_mut<CreatorTokens>(creator_addr);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow_mut(&mut creator_tokens.tokens, token_id);
+        
+        // Only creator can burn
+        assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
+        
+        // Validate amount
+        assert!(amount > 0, error::invalid_argument(E_INVALID_AMOUNT));
+        assert!(token_data.current_supply >= amount, error::invalid_argument(E_INSUFFICIENT_BALANCE));
+        
+        // Withdraw from creator
+        let fa = primary_fungible_store::withdraw(creator, token_data.metadata, amount);
+        
+        // Burn the tokens
+        fungible_asset::burn(&token_data.burn_ref, fa);
+        
+        // Update current supply
+        token_data.current_supply = token_data.current_supply - amount;
+    }
+
+    /// Get the metadata object address for a token
+    #[view]
+    public fun get_metadata_address(creator: address, token_id: vector<u8>): Object<Metadata> acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).metadata
+    }
+
+    /// Get token balance for an account
+    #[view]
+    public fun get_balance(creator: address, token_id: vector<u8>, account: address): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
+        primary_fungible_store::balance(account, token_data.metadata)
+    }
+
+    /// Get current supply
+    #[view]
+    public fun get_current_supply(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).current_supply
+    }
+
+    /// Get total supply
+    #[view]
+    public fun get_total_supply(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).total_supply
+    }
+
+    /// Get APT reserve
+    #[view]
+    public fun get_apt_reserve(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).apt_reserve
+    }
+
+    /// Get current price (reserve / supply)
+    #[view]
+    public fun get_current_price(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
+        let supply = token_data.current_supply;
+        if (supply == 0) {
+            return 0
+        };
+        // Price = reserve / supply (in octas per token)
+        token_data.apt_reserve / supply
+    }
+
+    /// Check if a token exists
+    #[view]
+    public fun token_exists(creator: address, token_id: vector<u8>): bool acquires CreatorTokens {
+        if (!exists<CreatorTokens>(creator)) {
+            return false
+        };
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        table::contains(&creator_tokens.tokens, token_id)
+    }
+}
+
+    /// Transfer tokens between accounts
+    entry fun transfer(
+        sender: &signer,
+        creator: address,
+        recipient: address,
+        amount: u64,
+    ) acquires TokenData {
+        let metadata = borrow_global<TokenData>(creator).metadata;
+        primary_fungible_store::transfer(sender, metadata, recipient, amount);
+    }
+
+    /// Burn tokens (only creator can call)
+    entry fun burn(
+        creator: &signer,
+        amount: u64,
+    ) acquires TokenData {
+        let creator_addr = signer::address_of(creator);
+        let token_data = borrow_global_mut<TokenData>(creator_addr);
+        
+        // Only creator can burn
+        assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
+        
+        // Check balance
+        let balance = primary_fungible_store::balance(creator_addr, token_data.metadata);
+        assert!(balance >= amount, error::invalid_argument(E_INSUFFICIENT_BALANCE));
+        
+        // Withdraw and burn
+        let fa = primary_fungible_store::withdraw(creator, token_data.metadata, amount);
+        fungible_asset::burn(&token_data.burn_ref, fa);
+        
+        // Update current supply
+        token_data.current_supply = token_data.current_supply - amount;
+    }
+}
+
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
+        primary_fungible_store::transfer(sender, token_data.metadata, recipient, amount);
+    }
+
+    /// Burn tokens (only creator can call)
+    entry fun burn(
+        creator: &signer,
+        token_id: vector<u8>,
+        amount: u64,
+    ) acquires CreatorTokens {
+        let creator_addr = signer::address_of(creator);
+        let creator_tokens = borrow_global_mut<CreatorTokens>(creator_addr);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow_mut(&mut creator_tokens.tokens, token_id);
+        
+        // Only creator can burn
+        assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
+        
+        // Validate amount
+        assert!(amount > 0, error::invalid_argument(E_INVALID_AMOUNT));
+        assert!(token_data.current_supply >= amount, error::invalid_argument(E_INSUFFICIENT_BALANCE));
+        
+        // Withdraw from creator
+        let fa = primary_fungible_store::withdraw(creator, token_data.metadata, amount);
+        
+        // Burn the tokens
+        fungible_asset::burn(&token_data.burn_ref, fa);
+        
+        // Update current supply
+        token_data.current_supply = token_data.current_supply - amount;
+    }
+
+    /// Get the metadata object address for a token
+    #[view]
+    public fun get_metadata_address(creator: address, token_id: vector<u8>): Object<Metadata> acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).metadata
+    }
+
+    /// Get token balance for an account
+    #[view]
+    public fun get_balance(creator: address, token_id: vector<u8>, account: address): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
+        primary_fungible_store::balance(account, token_data.metadata)
+    }
+
+    /// Get current supply
+    #[view]
+    public fun get_current_supply(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).current_supply
+    }
+
+    /// Get total supply
+    #[view]
+    public fun get_total_supply(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).total_supply
+    }
+
+    /// Get APT reserve
+    #[view]
+    public fun get_apt_reserve(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).apt_reserve
+    }
+
+    /// Get current price (reserve / supply)
+    #[view]
+    public fun get_current_price(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
+        let supply = token_data.current_supply;
+        if (supply == 0) {
+            return 0
+        };
+        // Price = reserve / supply (in octas per token)
+        token_data.apt_reserve / supply
+    }
+
+    /// Check if a token exists
+    #[view]
+    public fun token_exists(creator: address, token_id: vector<u8>): bool acquires CreatorTokens {
+        if (!exists<CreatorTokens>(creator)) {
+            return false
+        };
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        table::contains(&creator_tokens.tokens, token_id)
+    }
+}
+
+    /// Transfer tokens between accounts
+    entry fun transfer(
+        sender: &signer,
+        creator: address,
+        recipient: address,
+        amount: u64,
+    ) acquires TokenData {
+        let metadata = borrow_global<TokenData>(creator).metadata;
+        primary_fungible_store::transfer(sender, metadata, recipient, amount);
+    }
+
+    /// Burn tokens (only creator can call)
+    entry fun burn(
+        creator: &signer,
+        amount: u64,
+    ) acquires TokenData {
+        let creator_addr = signer::address_of(creator);
+        let token_data = borrow_global_mut<TokenData>(creator_addr);
+        
+        // Only creator can burn
+        assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
+        
+        // Check balance
+        let balance = primary_fungible_store::balance(creator_addr, token_data.metadata);
+        assert!(balance >= amount, error::invalid_argument(E_INSUFFICIENT_BALANCE));
+        
+        // Withdraw and burn
+        let fa = primary_fungible_store::withdraw(creator, token_data.metadata, amount);
+        fungible_asset::burn(&token_data.burn_ref, fa);
+        
+        // Update current supply
+        token_data.current_supply = token_data.current_supply - amount;
+    }
+}

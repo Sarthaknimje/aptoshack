@@ -485,9 +485,14 @@ const TradingMarketplace: React.FC = () => {
           ? await TradingService.estimateBuy(tokenIdentifier, tokenAmount)
           : await TradingService.estimateSell(tokenIdentifier, tokenAmount)
         
+        // estimateSell may return null if no tokens in circulation (expected)
         setTradeEstimate(estimate)
-      } catch (error) {
-        console.error('Error estimating trade:', error)
+      } catch (error: any) {
+        // Only log unexpected errors (not "no tokens" errors)
+        if (!error?.message?.includes('No tokens in circulation') && 
+            !error?.message?.includes('no tokens')) {
+          console.error('Error estimating trade:', error)
+        }
         setTradeEstimate(null)
       } finally {
         setEstimating(false)
