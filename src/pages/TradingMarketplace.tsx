@@ -657,7 +657,22 @@ const TradingMarketplace: React.FC = () => {
             const totalSupply = await getTotalSupply(tokenData.creator)
             const availableSupply = totalSupply - currentSupply
             
-            console.log(`[Final Supply Check] Current: ${currentSupply}, Total: ${totalSupply}, Available: ${availableSupply}`)
+            console.log(`[Final Supply Check] ========================================`)
+            console.log(`[Final Supply Check] Creator: ${tokenData.creator}`)
+            console.log(`[Final Supply Check] Current Supply: ${currentSupply}`)
+            console.log(`[Final Supply Check] Total Supply: ${totalSupply}`)
+            console.log(`[Final Supply Check] Available Supply: ${availableSupply}`)
+            console.log(`[Final Supply Check] APT Payment: ${algoAmount} APT`)
+            
+            // Check if token was even initialized
+            if (totalSupply === 0) {
+              setTradeError(
+                `Token not properly initialized! ` +
+                `Total supply is 0. Please contact support or recreate the token.`
+              )
+              setIsProcessing(false)
+              return
+            }
             
             if (availableSupply <= 0) {
               setTradeError(
@@ -698,13 +713,27 @@ const TradingMarketplace: React.FC = () => {
             
             // Check if this would exceed total supply
             const newSupplyAfterTrade = currentSupply + estimatedTokensFromContract
+            console.log(`[Final Supply Check] Estimated tokens to mint: ${estimatedTokensFromContract}`)
+            console.log(`[Final Supply Check] New supply after trade: ${newSupplyAfterTrade}`)
+            console.log(`[Final Supply Check] Total supply limit: ${totalSupply}`)
+            
             if (newSupplyAfterTrade > totalSupply) {
+              const maxTokensCanBuy = availableSupply
+              const maxAptCanSpend = currentSupply === 0 
+                ? (maxTokensCanBuy * 0.00001)
+                : (maxTokensCanBuy * (await getAptReserve(tokenData.creator) / currentSupply))
+              
+              console.error(`[Final Supply Check] ❌ BLOCKED - Would exceed supply!`)
+              console.error(`[Final Supply Check] Max tokens you can buy: ${maxTokensCanBuy}`)
+              console.error(`[Final Supply Check] Max APT you can spend: ${maxAptCanSpend.toFixed(6)}`)
+              
               setTradeError(
                 `Transaction would exceed total supply! ` +
-                `Current: ${currentSupply.toFixed(0)}, ` +
+                `Current supply: ${currentSupply.toFixed(0)}, ` +
                 `Would mint: ${estimatedTokensFromContract.toFixed(0)}, ` +
-                `Total: ${totalSupply.toFixed(0)}. ` +
+                `Total supply: ${totalSupply.toFixed(0)}. ` +
                 `Available: ${availableSupply.toFixed(0)} tokens. ` +
+                `Maximum you can buy: ${maxTokensCanBuy.toFixed(0)} tokens (${maxAptCanSpend.toFixed(6)} APT). ` +
                 `Please reduce your amount.`
               )
               setIsProcessing(false)
