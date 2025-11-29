@@ -5317,31 +5317,40 @@ def shelby_upload():
                     "error": f"Shelby upload failed: {result.stderr[:200]}"
                 }), 500
             
-            # Parse CLI output to extract blob ID
-            # Shelby CLI typically outputs: "Uploaded: shelby://<blob_id>" or similar
+            # Parse CLI output to extract blob ID/transaction hash
+            # Shelby CLI outputs transaction hash in explorer link format
             output = result.stdout + result.stderr  # Check both
             blob_id = None
             blob_url = None
             
             # Try to extract blob ID from various output formats
             import re
-            # Pattern 1: "shelby://<blob_id>"
-            match = re.search(r'shelby://([^\s\n]+)', output)
+            # Pattern 1: Transaction hash from Aptos Explorer link (most reliable)
+            # Format: https://explorer.aptoslabs.com/txn/0x<64-char-hex>?network=shelbynet
+            match = re.search(r'explorer\.aptoslabs\.com/txn/(0x[a-f0-9]{64})', output)
             if match:
                 blob_id = match.group(1)
                 blob_url = f"shelby://{blob_id}"
+                logger.info(f"Extracted transaction hash from explorer link: {blob_id}")
             else:
-                # Pattern 2: "Blob ID: <id>"
-                match = re.search(r'[Bb]lob\s+[Ii][Dd]:\s*([^\s\n]+)', output)
+                # Pattern 2: Any 64-character hex string (transaction hash)
+                match = re.search(r'(0x[a-f0-9]{64})', output)
                 if match:
                     blob_id = match.group(1)
                     blob_url = f"shelby://{blob_id}"
+                    logger.info(f"Extracted transaction hash: {blob_id}")
                 else:
-                    # Pattern 3: Transaction hash or similar
-                    match = re.search(r'([a-f0-9]{64})', output)
+                    # Pattern 3: "shelby://<blob_id>"
+                    match = re.search(r'shelby://([^\s\n]+)', output)
                     if match:
                         blob_id = match.group(1)
                         blob_url = f"shelby://{blob_id}"
+                    else:
+                        # Pattern 4: "Blob ID: <id>"
+                        match = re.search(r'[Bb]lob\s+[Ii][Dd]:\s*([^\s\n]+)', output)
+                        if match:
+                            blob_id = match.group(1)
+                            blob_url = f"shelby://{blob_id}"
             
             # If we couldn't parse, use the blob_name as fallback but log warning
             if not blob_id:
