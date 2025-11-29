@@ -38,7 +38,7 @@ import {
 import { useWallet } from '../contexts/WalletContext'
 import { PetraWalletIcon, YouTubeIcon, InstagramIcon, TwitterIcon, LinkedInIcon } from '../assets/icons'
 import { TradingService, TradeEstimate } from '../services/tradingService'
-import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract } from '../services/petraWalletService'
+import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract, getTokenBalance } from '../services/petraWalletService'
 import TradeSuccessModal from '../components/TradeSuccessModal'
 import ConfettiAnimation from '../components/ConfettiAnimation'
 import BondingCurveChart from '../components/BondingCurveChart'
@@ -251,10 +251,26 @@ const TradingMarketplace: React.FC = () => {
     }
 
     try {
-      // TODO: Implement with Aptos SDK
-      // Placeholder - will fetch balance from Aptos blockchain
-      console.log('Fetching token balance from Aptos - TODO: Implement')
-      setUserTokenBalance(0)
+      // Get creator address from token data
+      if (!tokenData?.creator) {
+        // Try to get from backend
+        const response = await fetch(`http://localhost:5001/tokens`)
+        const result = await response.json()
+        if (result.success) {
+          const token = result.tokens.find((t: any) => t.asa_id === asaId || t.token_id === asaId)
+          if (token?.creator) {
+            const balance = await getTokenBalance(token.creator, address)
+            setUserTokenBalance(balance)
+            return
+          }
+        }
+        setUserTokenBalance(0)
+        return
+      }
+      
+      // Fetch balance from contract
+      const balance = await getTokenBalance(tokenData.creator, address)
+      setUserTokenBalance(balance)
     } catch (error) {
       console.error('Error fetching token balance:', error)
       setUserTokenBalance(0)
@@ -377,9 +393,13 @@ const TradingMarketplace: React.FC = () => {
       setEstimating(true)
       try {
         const tokenAmount = parseFloat(amount)
+        
+        // For buy: amount is in tokens, estimate APT cost
+        // For sell: amount is in tokens, estimate APT received
         const estimate = activeTab === 'buy'
           ? await TradingService.estimateBuy(tokenData.asa_id, tokenAmount)
           : await TradingService.estimateSell(tokenData.asa_id, tokenAmount)
+        
         setTradeEstimate(estimate)
       } catch (error) {
         console.error('Error estimating trade:', error)
@@ -1297,12 +1317,65 @@ const TradingMarketplace: React.FC = () => {
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-gray-400">Total</span>
                     <span className="text-white font-bold text-xl">
-                      {calculateTotal().toFixed(4)} APTOS
+                      {activeTab === 'buy' 
+                        ? (tradeEstimate?.algo_cost || (parseFloat(amount) * currentPrice || 0)).toFixed(4) + ' APTOS'
+                        : (tradeEstimate?.algo_received || (parseFloat(amount) * currentPrice || 0)).toFixed(4) + ' APTOS'
+                      }
                     </span>
                   </div>
+                  
+                  {/* Show trade estimate details */}
+                  {tradeEstimate && amount && parseFloat(amount) > 0 && (
+                    <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+                      {activeTab === 'buy' ? (
+                        <>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-400">You will receive:</span>
+                            <span className="text-green-400 font-semibold">
+                              {parseFloat(amount).toFixed(2)} {tokenData?.token_symbol || tokenData?.symbol || 'tokens'}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-400">Cost:</span>
+                            <span className="text-white font-medium">
+                              {tradeEstimate.algo_cost?.toFixed(4) || '0.0000'} APTOS
+                            </span>
+                          </div>
+                          {tradeEstimate.new_price && (
+                            <div className="flex items-center justify-between text-xs text-gray-500">
+                              <span>New price:</span>
+                              <span>${tradeEstimate.new_price.toFixed(6)}</span>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-400">You will receive:</span>
+                            <span className="text-green-400 font-semibold">
+                              {tradeEstimate.algo_received?.toFixed(4) || '0.0000'} APTOS
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="text-gray-400">Selling:</span>
+                            <span className="text-white font-medium">
+                              {parseFloat(amount).toFixed(2)} {tokenData?.token_symbol || tokenData?.symbol || 'tokens'}
+                            </span>
+                          </div>
+                          {tradeEstimate.new_price && (
+                            <div className="flex items-center justify-between text-xs text-gray-500">
+                              <span>New price:</span>
+                              <span>${tradeEstimate.new_price.toFixed(6)}</span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  )}
+                  
                   {orderType === 'market' && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-400">Price</span>
+                    <div className="flex items-center justify-between text-sm mt-2">
+                      <span className="text-gray-400">Current Price</span>
                       <span className="text-gray-300">${currentPrice.toFixed(4)}</span>
                     </div>
                   )}
