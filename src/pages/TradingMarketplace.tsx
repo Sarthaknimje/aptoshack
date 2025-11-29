@@ -141,7 +141,7 @@ const TradingMarketplace: React.FC = () => {
                 }
               } catch (e) {
                 console.error('Error parsing bonding curve state:', e)
-                parsedBondingCurveState = { token_supply: 0, algo_reserve: 0 }
+                parsedBondingCurveState = { token_supply: 0, algo_reserve: 0 } as any
               }
             }
             
@@ -1262,16 +1262,21 @@ const TradingMarketplace: React.FC = () => {
                 )}
 
                 <div>
-                  <label className="block text-white font-medium mb-2">Amount</label>
+                  <label className="block text-white font-medium mb-2">
+                    Amount {activeTab === 'buy' ? '(Tokens)' : '(Tokens)'}
+                  </label>
                   <div className="relative">
                     <input
                       type="number"
                       step="0.01"
-                      placeholder="0.00"
+                      placeholder={activeTab === 'buy' ? "0.00 tokens" : "0.00 tokens"}
                       value={amount}
                       onChange={(e) => setAmount(e.target.value)}
                       className="w-full px-4 py-3 bg-white/5 border-2 border-white/20 rounded-xl text-white focus:outline-none focus:border-primary-500 transition-all"
                     />
+                    <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 font-semibold">
+                      {tokenData?.token_symbol || tokenData?.symbol || 'tokens'}
+                    </span>
                     <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 font-semibold">
                       ${tokenData.symbol}
                     </span>
