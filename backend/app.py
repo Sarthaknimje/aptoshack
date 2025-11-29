@@ -3449,15 +3449,15 @@ def get_youtube_videos():
             youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
             
             # Get all videos using API key (public data)
-        videos_response = youtube.search().list(
-            part='snippet',
-            channelId=channel_id,
-            type='video',
-            maxResults=50,
+            videos_response = youtube.search().list(
+                part='snippet',
+                channelId=channel_id,
+                type='video',
+                maxResults=50,
                 order='date',
                 key=YOUTUBE_API_KEY
-        ).execute()
-        
+            ).execute()
+            
             # Get channel info using API key
             channels_response = youtube.channels().list(
                 part='snippet,statistics',
