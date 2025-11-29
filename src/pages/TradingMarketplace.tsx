@@ -510,7 +510,28 @@ const TradingMarketplace: React.FC = () => {
           // Cache values for later use to avoid duplicate API calls
           cachedSupply = { current: currentSupply, total: totalSupply, reserve: aptReserve }
           
-          console.log(`[Supply Check] Current: ${currentSupply}, Total: ${totalSupply}`)
+          console.log(`[Supply Check] Current: ${currentSupply}, Total: ${totalSupply}, Reserve: ${aptReserve}`)
+          
+          // CRITICAL: Verify the contract state matches our expectations
+          if (totalSupply === 0) {
+            setTradeError(
+              `Token not properly initialized! ` +
+              `Total supply is 0. The token may not have been created correctly. ` +
+              `Please contact support or try creating a new token.`
+            )
+            setIsProcessing(false)
+            return
+          }
+          
+          if (currentSupply > totalSupply) {
+            setTradeError(
+              `Invalid contract state! ` +
+              `Current supply (${currentSupply}) exceeds total supply (${totalSupply}). ` +
+              `This should not happen. Please contact support.`
+            )
+            setIsProcessing(false)
+            return
+          }
           
           if (currentSupply >= totalSupply) {
             setTradeError(
