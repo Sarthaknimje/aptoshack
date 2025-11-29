@@ -27,9 +27,8 @@ const expirationDays = parseInt(args[2]) || 365;
 
 async function uploadToShelby() {
   try {
-    // Import Shelby SDK from node_modules
-    // Use package name directly - Node will resolve it from parent directory's node_modules
-    const shelbyModule = await import('@shelby-protocol/sdk');
+    // Import Shelby SDK from node_modules using the correct export path
+    const shelbyModule = await import('@shelby-protocol/sdk/node');
     const Shelby = shelbyModule.default || shelbyModule.Shelby || shelbyModule;
     
     // Read file
