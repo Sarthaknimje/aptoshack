@@ -92,6 +92,7 @@ export async function createASAWithPetra({
   assetName,
   unitName,
   totalSupply,
+  tokenId,  // content_id (e.g., video_id, tweet_id, LinkedIn post ID)
   decimals = 0,
   url = '',
   iconUri = '',
@@ -102,6 +103,7 @@ export async function createASAWithPetra({
   assetName: string
   unitName: string
   totalSupply: number
+  tokenId: string  // Unique identifier for this token (content_id)
   decimals?: number
   url?: string
   iconUri?: string
@@ -129,9 +131,15 @@ export async function createASAWithPetra({
         throw new Error('Decimals must be between 0 and 18')
       }
 
+      // Validate tokenId
+      if (!tokenId || tokenId.trim().length === 0) {
+        throw new Error('Token ID (content_id) is required')
+      }
+
       console.log(`[createASAWithPetra] Creating token with:`)
       console.log(`  - Name: ${assetName}`)
       console.log(`  - Symbol: ${unitName.toUpperCase()}`)
+      console.log(`  - Token ID: ${tokenId}`)
       console.log(`  - Decimals: ${decimals}`)
       console.log(`  - Total Supply: ${safeTotalSupply}`)
       console.log(`  - Creator: ${sender}`)
@@ -143,6 +151,7 @@ export async function createASAWithPetra({
         function: `${MODULE_ADDRESS}::creator_token::initialize`,
         type_arguments: [],
         arguments: [
+          Array.from(new TextEncoder().encode(tokenId)), // token_id: vector<u8> (content_id)
           Array.from(new TextEncoder().encode(assetName)), // name: vector<u8>
           Array.from(new TextEncoder().encode(unitName.toUpperCase())), // symbol: vector<u8>
           decimals.toString(), // decimals: u8 (as string for consistency)
@@ -248,13 +257,14 @@ export async function buyTokensWithContract({
       const minTokens = minTokensReceived ? Math.round(minTokensReceived) : 0
 
       // Build transaction to call buy_tokens function
-      // New signature: buy_tokens(buyer, creator, apt_payment, min_tokens_received)
+      // New signature: buy_tokens(buyer, creator, token_id, apt_payment, min_tokens_received)
       const transaction = {
         type: "entry_function_payload",
         function: `${MODULE_ADDRESS}::creator_token::buy_tokens`,
         type_arguments: [],
         arguments: [
           creatorAddress, // creator: address
+          Array.from(new TextEncoder().encode(tokenId)), // token_id: vector<u8>
           aptPaymentOctas.toString(), // apt_payment: u64 (in octas)
           minTokens.toString() // min_tokens_received: u64
         ]
@@ -463,7 +473,7 @@ export async function getTokenBalance(
 /**
  * Get current supply of a token
  */
-export async function getCurrentSupply(creatorAddress: string): Promise<number> {
+export async function getCurrentSupply(creatorAddress: string, tokenId: string): Promise<number> {
   try {
     const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
@@ -471,7 +481,7 @@ export async function getCurrentSupply(creatorAddress: string): Promise<number> 
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_current_supply`,
         type_arguments: [],
-        arguments: [creatorAddress]
+        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
       })
     })
 
@@ -494,7 +504,7 @@ export async function getCurrentSupply(creatorAddress: string): Promise<number> 
 /**
  * Get total supply of a token
  */
-export async function getTotalSupply(creatorAddress: string): Promise<number> {
+export async function getTotalSupply(creatorAddress: string, tokenId: string): Promise<number> {
   try {
     const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
@@ -502,7 +512,7 @@ export async function getTotalSupply(creatorAddress: string): Promise<number> {
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_total_supply`,
         type_arguments: [],
-        arguments: [creatorAddress]
+        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
       })
     })
 
@@ -525,7 +535,7 @@ export async function getTotalSupply(creatorAddress: string): Promise<number> {
 /**
  * Get APT reserve for a token
  */
-export async function getAptReserve(creatorAddress: string): Promise<number> {
+export async function getAptReserve(creatorAddress: string, tokenId: string): Promise<number> {
   try {
     const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
@@ -533,7 +543,7 @@ export async function getAptReserve(creatorAddress: string): Promise<number> {
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_apt_reserve`,
         type_arguments: [],
-        arguments: [creatorAddress]
+        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
       })
     })
 
