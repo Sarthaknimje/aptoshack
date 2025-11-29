@@ -4022,13 +4022,13 @@ def get_youtube_videos():
                     if match:
                         video_id = match.group(1)
                 
-                if video_id:
-                    tokenized_videos[video_id] = {
-                        'token_id': token_id,
-                        'token_name': token_name,
-                        'token_symbol': token_symbol
-                    }
-        except sqlite3.OperationalError as e:
+                    if video_id:
+                        tokenized_videos[video_id] = {
+                            'token_id': token_id,
+                            'token_name': token_name,
+                            'token_symbol': token_symbol
+                        }
+            except sqlite3.OperationalError as e:
             # Table doesn't exist yet or database is empty - this is fine
             logger.info(f"No tokenized videos found (database may be empty): {e}")
             tokenized_videos = {}
