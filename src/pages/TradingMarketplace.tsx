@@ -181,7 +181,12 @@ const TradingMarketplace: React.FC = () => {
             // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
             const balanceIdentifier = enhancedToken.token_id || enhancedToken.asa_id
             if (isConnected && address && balanceIdentifier) {
-              fetchUserTokenBalance(balanceIdentifier)
+              // For Aptos tokens, we need creator address and token_id (content_id)
+              if (enhancedToken.token_id && enhancedToken.creator) {
+                fetchUserTokenBalance(enhancedToken.token_id)
+              } else if (enhancedToken.asa_id) {
+                fetchUserTokenBalance(enhancedToken.asa_id)
+              }
             }
             
             // Fetch real trade history for chart
@@ -312,18 +317,22 @@ const TradingMarketplace: React.FC = () => {
     if (isConnected && balance) {
       setUserAlgoBalance(balance)
       // Fetch token balance when token data is available
-      if (tokenData?.asa_id) {
-        fetchUserTokenBalance(tokenData.asa_id)
+      // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
+      const balanceIdentifier = tokenData?.token_id || tokenData?.asa_id
+      if (balanceIdentifier) {
+        fetchUserTokenBalance(balanceIdentifier)
       }
     }
-  }, [isConnected, balance, tokenData?.asa_id])
+  }, [isConnected, balance, tokenData?.token_id, tokenData?.asa_id])
   
   // Refresh balance when switching to sell tab
   useEffect(() => {
-    if (activeTab === 'sell' && isConnected && address && tokenData?.asa_id) {
-      fetchUserTokenBalance(tokenData.asa_id)
+    // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
+    const balanceIdentifier = tokenData?.token_id || tokenData?.asa_id
+    if (activeTab === 'sell' && isConnected && address && balanceIdentifier) {
+      fetchUserTokenBalance(balanceIdentifier)
     }
-  }, [activeTab, isConnected, address, tokenData?.asa_id])
+  }, [activeTab, isConnected, address, tokenData?.token_id, tokenData?.asa_id])
 
   // Refresh data periodically
   useEffect(() => {
@@ -432,9 +441,15 @@ const TradingMarketplace: React.FC = () => {
         
         // For buy: amount is in tokens, estimate APT cost
         // For sell: amount is in tokens, estimate APT received
+        // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
+        const tokenIdentifier = tokenData.token_id || tokenData.asa_id
+        if (!tokenIdentifier) {
+          setTradeEstimate(null)
+          return
+        }
         const estimate = activeTab === 'buy'
-          ? await TradingService.estimateBuy(tokenData.asa_id, tokenAmount)
-          : await TradingService.estimateSell(tokenData.asa_id, tokenAmount)
+          ? await TradingService.estimateBuy(tokenIdentifier, tokenAmount)
+          : await TradingService.estimateSell(tokenIdentifier, tokenAmount)
         
         setTradeEstimate(estimate)
       } catch (error) {
@@ -480,9 +495,17 @@ const TradingMarketplace: React.FC = () => {
       return
     }
     
+    // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
+    const tokenIdentifier = tokenData.token_id || tokenData.asa_id
+    if (!tokenIdentifier) {
+      setTradeError('Token identifier not found')
+      setIsProcessing(false)
+      return
+    }
+    
     const estimate = activeTab === 'buy'
-      ? await TradingService.estimateBuy(tokenData.asa_id, tradeAmount)
-      : await TradingService.estimateSell(tokenData.asa_id, tradeAmount)
+      ? await TradingService.estimateBuy(tokenIdentifier, tradeAmount)
+      : await TradingService.estimateSell(tokenIdentifier, tradeAmount)
 
     // Validate estimate
     if (!estimate) {
