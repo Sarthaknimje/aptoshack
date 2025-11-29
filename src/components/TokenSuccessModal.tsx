@@ -148,10 +148,10 @@ export const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
               <div className="text-white font-medium truncate">{displayData.tokenName}</div>
             </div>
 
-            {/* ASA ID */}
+            {/* Token ID / Metadata Address */}
             <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
-              <div className="text-sm text-white/60 mb-1">ASA ID</div>
-              <div className="text-white font-mono text-lg">{displayData.assetId}</div>
+              <div className="text-sm text-white/60 mb-1">Token ID</div>
+              <div className="text-white font-mono text-lg break-all">{String(displayData.assetId)}</div>
             </div>
 
             {/* Creator Address */}
@@ -209,7 +209,7 @@ export const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
             transition={{ delay: 0.6 }}
           >
             <button
-              onClick={() => window.open(`https://testnet.algoexplorer.io/asset/${displayData.assetId}`, '_blank')}
+              onClick={() => window.open(`https://explorer.aptoslabs.com/object/${String(displayData.assetId)}?network=testnet`, '_blank')}
               className="flex-1 bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 px-6 rounded-xl font-medium hover:from-blue-600 hover:to-purple-700 transition-all duration-200 transform hover:scale-105"
             >
               View on Explorer

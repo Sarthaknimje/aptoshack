@@ -340,7 +340,7 @@ const CreatorProfile: React.FC = () => {
                     Trade ${creator.symbol}
                   </Link>
                   <button 
-                    onClick={() => window.open(`https://testnet.explorer.petrawallet.app/asset/${creator.id}`, '_blank')}
+                    onClick={() => window.open(`https://explorer.aptoslabs.com/object/${creator.id}?network=testnet`, '_blank')}
                     className="btn-secondary inline-flex items-center"
                   >
                     <ExternalLink className="w-4 h-4 mr-2" />

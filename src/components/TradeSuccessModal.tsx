@@ -28,8 +28,8 @@ export const TradeSuccessModal: React.FC<TradeSuccessModalProps> = ({
 }) => {
   if (!isOpen) return null
 
-  const explorerLink = `https://testnet.explorer.petrawallet.app/tx/${transactionId}`
-  const assetExplorerLink = assetId ? `https://testnet.explorer.petrawallet.app/asset/${assetId}` : null
+  const explorerLink = `https://explorer.aptoslabs.com/txn/${transactionId}?network=testnet`
+  const assetExplorerLink = assetId ? `https://explorer.aptoslabs.com/object/${String(assetId)}?network=testnet` : null
 
   return (
     <>
@@ -164,7 +164,7 @@ export const TradeSuccessModal: React.FC<TradeSuccessModalProps> = ({
                 {/* Asset Link (if available) */}
                 {assetExplorerLink && (
                   <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4 border border-white/20">
-                    <div className="text-sm text-white/60 mb-2">Asset ID</div>
+                    <div className="text-sm text-white/60 mb-2">Token ID</div>
                     <a
                       href={assetExplorerLink}
                       target="_blank"
@@ -172,7 +172,7 @@ export const TradeSuccessModal: React.FC<TradeSuccessModalProps> = ({
                       className="inline-flex items-center gap-2 text-blue-400 hover:text-blue-300 transition-colors text-sm"
                     >
                       <ExternalLink className="w-4 h-4" />
-                      View Asset #{assetId}
+                      View Token
                     </a>
                   </div>
                 )}

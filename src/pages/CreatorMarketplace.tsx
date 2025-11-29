@@ -624,9 +624,9 @@ const CreatorMarketplace: React.FC = () => {
                 {/* ASA ID */}
                 <div className="mt-3 pt-3 border-t border-white/10">
                   <div className="flex items-center justify-between text-xs text-gray-500">
-                    <span>ASA: {token.asa_id}</span>
+                    <span>Token ID: {token.token_id || token.asa_id}</span>
                     <a 
-                      href={`https://testnet.algoexplorer.io/asset/${token.asa_id}`}
+                      href={`https://explorer.aptoslabs.com/object/${String(token.asa_id || token.token_id || '')}?network=testnet`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="hover:text-blue-400 transition-colors"

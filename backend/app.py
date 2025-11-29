@@ -3113,7 +3113,8 @@ def bonding_curve_estimate():
             (isinstance(bonding_curve_config_json, str) and bonding_curve_config_json.strip() == '') or
             (isinstance(bonding_curve_state_json, str) and bonding_curve_state_json.strip() == '')):
             logger.warning(f"Bonding curve not initialized for token {asa_id}, initializing now...")
-            initial_price = current_price if current_price and current_price > 0 else 0.001
+            # Start with $0 price (bonding curve will set price as tokens are bought)
+            initial_price = 0.0
             bonding_curve = BondingCurve(
                 initial_price=initial_price,
                 initial_supply=int(total_supply) if total_supply else 1000000
@@ -3137,21 +3138,59 @@ def bonding_curve_estimate():
         curve = BondingCurve.from_dict(json.loads(bonding_curve_config_json))
         state = BondingCurveState.from_dict(json.loads(bonding_curve_state_json))
         
+        # Get current supply and reserve from contract if available
+        # For now, use database state, but ideally fetch from contract
+        current_supply = state.token_supply
+        current_reserve = state.algo_reserve
+        
         if trade_type == 'buy':
-            result = curve.calculate_buy_price(state.token_supply, state.algo_reserve, token_amount)
+            # Handle $0 initial price: use contract's bonding curve formula
+            # First buy: base_price = 0.00001 APT per token (1000 octas)
+            # Subsequent buys: price = reserve / supply
+            base_price_per_token = 0.00001  # 0.00001 APT per token (contract base price)
+            
+            if current_supply == 0:
+                # First buy: use base price
+                algo_cost = token_amount * base_price_per_token
+                new_price = base_price_per_token
+                new_supply = token_amount
+                new_reserve = algo_cost
+            else:
+                # Subsequent buys: use bonding curve formula
+                # Price = reserve / supply
+                current_price_apt = current_reserve / current_supply if current_supply > 0 else base_price_per_token
+                # Simplified: tokens = apt_payment / current_price
+                # For more accurate calculation, integrate the curve
+                algo_cost = token_amount * current_price_apt
+                new_supply = current_supply + token_amount
+                new_reserve = current_reserve + algo_cost
+                new_price = new_reserve / new_supply if new_supply > 0 else base_price_per_token
+            
             return jsonify({
                 "success": True,
-                "algo_cost": result['algo_cost'],
-                "new_price": result['new_price'],
-                "price_impact": ((result['new_price'] - current_price) / current_price) * 100 if current_price > 0 else 0
+                "algo_cost": algo_cost,
+                "new_price": new_price,
+                "price_impact": ((new_price - (current_price if current_price > 0 else base_price_per_token)) / (current_price if current_price > 0 else base_price_per_token)) * 100 if (current_price > 0 or new_price > 0) else 0
             })
         else:
-            result = curve.calculate_sell_price(state.token_supply, state.algo_reserve, token_amount)
+            # Sell: calculate based on current price
+            if current_supply == 0 or current_reserve == 0:
+                return jsonify({
+                    "success": False,
+                    "error": "No tokens in circulation to sell"
+                }), 400
+            
+            current_price_apt = current_reserve / current_supply
+            algo_received = token_amount * current_price_apt
+            new_supply = current_supply - token_amount
+            new_reserve = current_reserve - algo_received
+            new_price = new_reserve / new_supply if new_supply > 0 else 0
+            
             return jsonify({
                 "success": True,
-                "algo_received": result['algo_received'],
-                "new_price": result['new_price'],
-                "price_impact": ((current_price - result['new_price']) / current_price) * 100 if current_price > 0 else 0
+                "algo_received": algo_received,
+                "new_price": new_price,
+                "price_impact": ((current_price_apt - new_price) / current_price_apt) * 100 if current_price_apt > 0 else 0
             })
     except Exception as e:
         logger.error(f"Error in bonding curve estimate: {e}")

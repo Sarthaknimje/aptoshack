@@ -1216,7 +1216,7 @@ const PredictionMarket: React.FC = () => {
                 <p className="text-gray-300 mb-4">{tradeSuccess.message}</p>
                 {tradeSuccess.txId && (
                   <a
-                    href={`https://testnet.algoexplorer.io/tx/${tradeSuccess.txId}`}
+                    href={`https://explorer.aptoslabs.com/txn/${tradeSuccess.txId}?network=testnet`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-violet-400 hover:text-violet-300 text-sm flex items-center justify-center gap-1"
