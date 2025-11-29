@@ -3345,10 +3345,10 @@ def bonding_curve_estimate():
             # Update database - support both asa_id and token_id
             try:
                 asa_id_int = int(token_identifier)
-            cursor.execute('''
-                UPDATE tokens 
-                SET bonding_curve_config = ?, bonding_curve_state = ?
-                WHERE asa_id = ?
+                cursor.execute('''
+                    UPDATE tokens 
+                    SET bonding_curve_config = ?, bonding_curve_state = ?
+                    WHERE asa_id = ?
                 ''', (bonding_curve_config_json, bonding_curve_state_json, asa_id_int))
             except ValueError:
                 cursor.execute('''
