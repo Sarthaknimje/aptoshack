@@ -3332,30 +3332,23 @@ def bonding_curve_estimate():
         
         # For Aptos tokens (token_id is string), try to fetch actual supply from contract
         # This ensures we have the latest state even if database isn't synced
+        # Check if token_identifier is a numeric string that could be an Aptos token_id
+        # Aptos token_ids are typically large numbers stored as strings
+        is_aptos_token = False
+        asa_id_int = None
         try:
             asa_id_int = int(token_identifier)
-            # Legacy Algorand token - use database state
-            # But also check trades if supply is 0
-            if current_supply == 0:
-                cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (str(asa_id_int),))
-                trade_count = cursor.fetchone()[0]
-                if trade_count > 0:
-                    # Estimate supply from trades
-                    cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'buy'))
-                    buy_sum = cursor.fetchone()[0] or 0
-                    cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'sell'))
-                    sell_sum = cursor.fetchone()[0] or 0
-                    estimated_supply = buy_sum - sell_sum
-                    if estimated_supply > 0:
-                        current_supply = estimated_supply
-                        cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'buy'))
-                        buy_value = cursor.fetchone()[0] or 0
-                        cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'sell'))
-                        sell_value = cursor.fetchone()[0] or 0
-                        estimated_reserve = buy_value - sell_value
-                        if estimated_reserve > 0:
-                            current_reserve = estimated_reserve
+            # If it's a very large number (> 1 billion), it's likely an Aptos token_id, not an Algorand asa_id
+            # Algorand asa_ids are typically much smaller
+            if asa_id_int > 1000000000:  # 1 billion - Aptos token_ids are usually larger
+                is_aptos_token = True
+                logger.info(f"🔍 Token identifier {token_identifier} is a large number, treating as Aptos token_id")
         except ValueError:
+            # Not a number at all - definitely an Aptos token_id (string)
+            is_aptos_token = True
+            logger.info(f"🔍 Token identifier {token_identifier} is a string, treating as Aptos token_id")
+        
+        if is_aptos_token:
             # Aptos token - fetch actual supply and reserve from contract
             # Try multiple ways to find the token: token_id, metadata_address, or content_id
             creator_address = None
@@ -3373,8 +3366,10 @@ def bonding_curve_estimate():
             if creator_row and creator_row[0]:
                 creator_address = creator_row[0]
                 content_id = creator_row[1] or token_identifier  # Use content_id if available, otherwise token_identifier
+                logger.info(f"🔍 Estimate (buy/sell): Fetching contract state for creator={creator_address}, content_id={content_id}, token_identifier={token_identifier}")
                 # Fetch actual contract state using content_id (what the contract expects)
                 contract_supply, contract_reserve = fetch_aptos_contract_state(creator_address, content_id)
+                logger.info(f"🔍 Estimate (buy/sell): Contract fetch result - supply={contract_supply}, reserve={contract_reserve}")
                 
                 if contract_supply is not None and contract_reserve is not None:
                     # Use contract state (most accurate)
@@ -3440,6 +3435,34 @@ def bonding_curve_estimate():
             })
         else:
             # Sell: calculate based on current price
+            # For Aptos tokens, ALWAYS try to fetch contract state first before checking supply
+            # This ensures we have the latest state even if database is out of sync
+            if current_supply <= 0:
+                # Try to fetch from contract one more time (in case it wasn't fetched earlier)
+                try:
+                    asa_id_int = int(token_identifier)
+                    is_aptos = False
+                except ValueError:
+                    is_aptos = True
+                    # Try to get creator and content_id for Aptos tokens
+                    cursor.execute('SELECT creator, content_id FROM tokens WHERE token_id = ? OR metadata_address = ?', (token_identifier, token_identifier))
+                    creator_row = cursor.fetchone()
+                    if creator_row and creator_row[0]:
+                        creator_address = creator_row[0]
+                        content_id = creator_row[1] or token_identifier
+                        logger.info(f"🔍 Sell estimate: Attempting contract fetch for creator={creator_address}, content_id={content_id}")
+                        # Fetch actual contract state using content_id
+                        contract_supply, contract_reserve = fetch_aptos_contract_state(creator_address, content_id)
+                        logger.info(f"🔍 Sell estimate: Contract fetch result - supply={contract_supply}, reserve={contract_reserve}")
+                        if contract_supply is not None and contract_reserve is not None and contract_supply > 0:
+                            current_supply = contract_supply
+                            current_reserve = contract_reserve
+                            logger.info(f"✅ Sell estimate: Using contract state - supply={current_supply}, reserve={contract_reserve} APT")
+                        else:
+                            logger.warning(f"⚠️ Sell estimate: Contract fetch returned None or 0 supply. supply={contract_supply}, reserve={contract_reserve}")
+                    else:
+                        logger.warning(f"⚠️ Sell estimate: Could not find creator/content_id for token {token_identifier}")
+            
             # Check if we have any trades - if yes, there should be tokens in circulation
             # Even if database state shows 0, if trades exist, estimate from them
             try:
@@ -3449,7 +3472,7 @@ def bonding_curve_estimate():
                 cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (token_identifier,))
             trade_count = cursor.fetchone()[0]
             
-            # If supply is 0 but we have trades, try to estimate from trades one more time
+            # If supply is still 0 but we have trades, try to estimate from trades one more time
             if current_supply <= 0 and trade_count > 0:
                 logger.warning(f"⚠️ Supply is 0 but {trade_count} trades exist. Re-estimating from trades...")
                 try:
