@@ -792,8 +792,15 @@ const TradingMarketplace: React.FC = () => {
             const maxMinTokens = Math.min(safeEstimatedTokens, availableSupply - safetyMargin)
             const minTokensReceived = Math.floor(maxMinTokens * 0.9)
             
+            // Reduce APT payment slightly to account for rounding differences
+            // This ensures the contract won't calculate more tokens than we expect
+            const safetyReductionFactor = 0.999 // Reduce by 0.1% to be extra safe
+            const safeAptPayment = algoAmount * safetyReductionFactor
+            
             console.log(`[Final Supply Check] Estimated tokens (before safety): ${estimatedTokensFromContract}`)
             console.log(`[Final Supply Check] Safe estimated tokens (after safety margin): ${safeEstimatedTokens}`)
+            console.log(`[Final Supply Check] Original APT payment: ${algoAmount}`)
+            console.log(`[Final Supply Check] Safe APT payment (reduced by 0.1%): ${safeAptPayment}`)
             console.log(`[Final Supply Check] ✅ Proceeding - Min tokens: ${minTokensReceived}, Max available: ${availableSupply}`)
             
             // Double-check: ensure we're not trying to buy more than available
@@ -818,7 +825,7 @@ const TradingMarketplace: React.FC = () => {
               buyer: address!,
               petraWallet: petraWallet,
               creatorAddress: tokenData.creator || address!,
-              aptPayment: algoAmount, // APT amount to pay
+              aptPayment: safeAptPayment, // Use reduced APT payment for extra safety
               minTokensReceived: minTokensReceived // Minimum tokens expected
             })
             
