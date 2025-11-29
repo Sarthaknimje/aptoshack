@@ -310,6 +310,18 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
     
+    try:
+        cursor.execute('ALTER TABLE tokens ADD COLUMN premium_content_account_address TEXT')
+        logger.info("Added premium_content_account_address column to tokens table")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute('ALTER TABLE tokens ADD COLUMN premium_content_explorer_url TEXT')
+        logger.info("Added premium_content_explorer_url column to tokens table")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
     # Create unique index on token_id if it doesn't exist
     try:
         cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_tokens_token_id ON tokens(token_id)')
@@ -1284,8 +1296,9 @@ def create_creator_token():
                               current_price, market_cap, youtube_channel_title, youtube_subscribers,
                               bonding_curve_config, bonding_curve_state, platform, content_url,
                               content_id, content_description, content_thumbnail,
-                              premium_content_url, premium_content_blob_id, premium_content_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              premium_content_url, premium_content_blob_id, premium_content_type,
+                              premium_content_account_address, premium_content_explorer_url)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             content_id,  # token_id (unique identifier - content_id)
             asset_id,    # metadata_address (Aptos FA metadata object address)
@@ -1306,7 +1319,9 @@ def create_creator_token():
             data.get('content_thumbnail', ''),
             data.get('premium_content_url'),  # Shelby blob URL
             data.get('premium_content_blob_id'),  # Shelby blob ID
-            data.get('premium_content_type', 'video')  # Content type (video/image/audio/document)
+            data.get('premium_content_type', 'video'),  # Content type (video/image/audio/document)
+            data.get('premium_content_account_address'),  # Shelby account address
+            data.get('premium_content_explorer_url')  # Shelby explorer URL
         ))
         
         conn.commit()

@@ -251,6 +251,8 @@ const MultiPlatformTokenization: React.FC = () => {
 
     let premiumContentUrl: string | null = null
     let premiumContentBlobId: string | null = null
+    let premiumContentAccountAddress: string | null = null
+    let premiumContentExplorerUrl: string | null = null
 
     try {
       // Upload premium content to Shelby if provided
@@ -297,6 +299,10 @@ const MultiPlatformTokenization: React.FC = () => {
             explorerUrl: uploadResult.explorerUrl || `https://explorer.shelby.xyz/shelbynet/account/${uploadResult.accountAddress}/blobs?name=${encodeURIComponent(uploadResult.blobName || blobName)}`,
             fileName: premiumContent.name
           }
+          
+          // Store account address and explorer URL for backend
+          premiumContentAccountAddress = uploadResult.accountAddress || null
+          premiumContentExplorerUrl = uploadResult.explorerUrl || null
         } catch (uploadError) {
           console.error('❌ ========================================')
           console.error('❌ Failed to upload premium content to Shelby')
