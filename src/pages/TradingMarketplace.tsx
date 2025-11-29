@@ -486,33 +486,49 @@ const TradingMarketplace: React.FC = () => {
         }
       }
       
-      // Check available supply from contract
+      // Check available supply from contract and adjust APT payment if needed
       if (tokenData?.creator) {
         try {
           const currentSupply = await getCurrentSupply(tokenData.creator)
           const totalSupply = await getTotalSupply(tokenData.creator)
           const availableSupply = totalSupply - currentSupply
           
-          if (tradeAmount > availableSupply) {
-            if (availableSupply <= 0) {
-              setTradeError(
-                `All tokens have been minted! ` +
-                `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}. ` +
-                `You can only sell existing tokens, not buy new ones.`
-              )
-            } else {
-              setTradeError(
-                `Insufficient token supply! Available: ${availableSupply.toFixed(2)} tokens, ` +
-                `but you're trying to buy ${tradeAmount.toFixed(2)} tokens. ` +
-                `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}`
-              )
-            }
+          if (availableSupply <= 0) {
+            setTradeError(
+              `All tokens have been minted! ` +
+              `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}. ` +
+              `You can only sell existing tokens, not buy new ones.`
+            )
+            setIsProcessing(false)
+            return
+          }
+          
+          // Calculate how many tokens the contract will mint from the APT payment
+          // Contract formula: tokens_received = apt_payment / base_price (for first buy)
+          // base_price = 1000 octas = 0.00001 APT
+          const basePricePerToken = 0.00001 // APT per token
+          const estimatedTokensFromContract = algoAmount / basePricePerToken
+          
+          // Check if contract will try to mint more than available
+          if (estimatedTokensFromContract > availableSupply) {
+            // Adjust APT payment to match available supply
+            const maxAptForAvailableTokens = availableSupply * basePricePerToken
+            
+            setTradeError(
+              `Insufficient token supply! ` +
+              `Available: ${availableSupply.toFixed(2)} tokens, ` +
+              `but your payment of ${algoAmount.toFixed(6)} APT would mint ~${estimatedTokensFromContract.toFixed(2)} tokens. ` +
+              `Maximum you can buy: ${maxAptForAvailableTokens.toFixed(6)} APT (${availableSupply.toFixed(2)} tokens). ` +
+              `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}. ` +
+              `Please reduce your amount to ${availableSupply.toFixed(2)} tokens or less.`
+            )
             setIsProcessing(false)
             return
           }
         } catch (error) {
           console.error('Error checking token supply:', error)
-          // Continue with trade if supply check fails
+          // Continue with trade if supply check fails, but warn user
+          console.warn('Could not verify token supply from contract, proceeding with trade...')
         }
       }
       
@@ -563,8 +579,12 @@ const TradingMarketplace: React.FC = () => {
         
         // Use contract-based buy function (atomic: pays APT and receives tokens)
         // New signature: buy_tokens accepts APT payment, not token amount
-        // Calculate min tokens expected for slippage protection (90% of estimated)
-        const minTokensReceived = Math.floor(tradeAmount * 0.9) // 10% slippage tolerance
+        // Calculate min tokens expected for slippage protection
+        // Contract will calculate: tokens = apt_payment / base_price (for first buy)
+        // base_price = 0.00001 APT per token, so tokens = apt_payment / 0.00001
+        const basePricePerToken = 0.00001
+        const estimatedTokensFromContract = algoAmount / basePricePerToken
+        const minTokensReceived = Math.floor(estimatedTokensFromContract * 0.9) // 10% slippage tolerance
         
         const buyResult = await buyTokensWithContract({
           buyer: address!,
