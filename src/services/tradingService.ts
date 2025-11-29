@@ -241,3 +241,14 @@ export class TradingService {
   }
 }
 
+
+        return result.token
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching token details:', error)
+      return null
+    }
+  }
+}
+

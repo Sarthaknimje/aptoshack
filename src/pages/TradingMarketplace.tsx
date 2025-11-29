@@ -274,7 +274,7 @@ const TradingMarketplace: React.FC = () => {
             if (!tokenId) {
               console.warn('No tokenId found for token, skipping balance fetch')
               setUserTokenBalance(0)
-              return
+          return
             }
             
             const balance = await getTokenBalance(token.creator, tokenId, address)
@@ -291,7 +291,7 @@ const TradingMarketplace: React.FC = () => {
       const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
       if (!tokenId) {
         console.warn('No tokenId found in tokenData, cannot fetch balance')
-        setUserTokenBalance(0)
+      setUserTokenBalance(0)
         return
       }
       

@@ -3614,10 +3614,6 @@ def get_youtube_videos():
     except Exception as e:
         logger.error(f"Error fetching YouTube videos: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-        
-    except Exception as e:
-        logger.error(f"Error fetching YouTube videos: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/youtube/video-info', methods=['POST', 'OPTIONS'])
 @cross_origin(supports_credentials=True)
@@ -4042,27 +4038,27 @@ def get_predictions():
                     WHERE status = ?
                     ORDER BY created_at DESC
                 ''', (status_filter,))
-        
-        rows = cursor.fetchall()
-        
-        for row in rows:
-            predictions.append({
-                "prediction_id": row[0],
-                "creator_address": row[1],
-                "content_url": row[2],
-                "platform": row[3],
-                "metric_type": row[4],
-                "target_value": row[5],
-                "timeframe_hours": row[6],
-                "end_time": row[7],
-                "yes_pool": row[8],
-                "no_pool": row[9],
-                "status": row[10],
-                "outcome": row[11],
-                "initial_value": row[12],
-                "final_value": row[13],
-                "created_at": row[14]
-            })
+            
+            rows = cursor.fetchall()
+            
+            for row in rows:
+                predictions.append({
+                    "prediction_id": row[0],
+                    "creator_address": row[1],
+                    "content_url": row[2],
+                    "platform": row[3],
+                    "metric_type": row[4],
+                    "target_value": row[5],
+                    "timeframe_hours": row[6],
+                    "end_time": row[7],
+                    "yes_pool": row[8],
+                    "no_pool": row[9],
+                    "status": row[10],
+                    "outcome": row[11],
+                    "initial_value": row[12],
+                    "final_value": row[13],
+                    "created_at": row[14]
+                })
         except sqlite3.OperationalError as e:
             # Table doesn't exist yet or database is empty - return empty list
             logger.info(f"No predictions found (database may be empty): {e}")
