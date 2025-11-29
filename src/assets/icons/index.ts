@@ -1,0 +1,6 @@
+export { YouTubeIcon } from './YouTubeIcon'
+export { InstagramIcon } from './InstagramIcon'
+export { TwitterIcon } from './TwitterIcon'
+export { LinkedInIcon } from './LinkedInIcon'
+export { PetraWalletIcon } from './PetraWalletIcon'
+export { TokenIcon } from './TokenIcon'
