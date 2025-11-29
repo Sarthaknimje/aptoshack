@@ -3528,9 +3528,9 @@ def get_youtube_videos():
                 tokenized_videos = {}
             finally:
                 conn.close()
-        
-        # Format videos with tokenization status
-        videos = []
+            
+            # Format videos with tokenization status
+            videos = []
         for item in videos_response.get('items', []):
             video_id = item['id']['videoId']
             video_data = {
@@ -3558,13 +3558,13 @@ def get_youtube_videos():
             
             logger.info(f"✅ Fetched and cached {len(videos)} YouTube videos for {channel_title}")
             
-        return jsonify({
-            "success": True,
-            "videos": videos,
-            "channel": {
-                "id": channel_id,
-                "title": channel['snippet']['title'],
-                "subscriberCount": int(channel['statistics'].get('subscriberCount', 0))
+            return jsonify({
+                "success": True,
+                "videos": videos,
+                "channel": {
+                    "id": channel_id,
+                    "title": channel['snippet']['title'],
+                    "subscriberCount": int(channel['statistics'].get('subscriberCount', 0))
                 },
                 "cached": False
             })
