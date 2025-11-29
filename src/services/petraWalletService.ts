@@ -328,12 +328,14 @@ export async function sellTokensWithContract({
   seller,
   petraWallet,
   creatorAddress,
+  tokenId,  // content_id
   tokenAmount,
   minAptReceived
 }: {
   seller: string
   petraWallet: any
   creatorAddress: string
+  tokenId: string  // content_id
   tokenAmount: number
   minAptReceived: number // in APT (will be converted to octas)
 }): Promise<{ txId: string; tokensSold: number; aptReceived: number }> {
@@ -355,12 +357,14 @@ export async function sellTokensWithContract({
       }
 
       // Build transaction to call sell_tokens function
+      // Note: sell_tokens requires creator to sign, so this will need to be updated
+      // For now, we'll need the creator to sign the transaction
       const transaction = {
         type: "entry_function_payload",
         function: `${MODULE_ADDRESS}::creator_token::sell_tokens`,
         type_arguments: [],
         arguments: [
-          creatorAddress, // creator: address
+          Array.from(new TextEncoder().encode(tokenId)), // token_id: vector<u8>
           safeTokenAmount.toString(), // token_amount: u64
           minAptReceivedOctas.toString() // min_apt_received: u64 (in octas)
         ]

@@ -58,7 +58,7 @@ module creatorvault::creator_token {
         total_supply: u64,
         icon_uri: vector<u8>,
         project_uri: vector<u8>,
-    ) {
+    ) acquires CreatorTokens {
         let creator_addr = signer::address_of(creator);
         
         // Initialize creator storage if it doesn't exist
@@ -76,9 +76,8 @@ module creatorvault::creator_token {
         assert!(decimals <= 18, error::invalid_argument(E_INVALID_AMOUNT));
 
         // Create a non-deletable object for the token metadata
-        // Use token_id in the symbol to make it unique
-        let symbol_with_id = string::utf8_bytes(&string::utf8(symbol));
-        let constructor_ref = &object::create_sticky_object(creator);
+        // Use named object with token_id to make it unique
+        let constructor_ref = &object::create_named_object(creator, token_id);
 
         // Create the FA metadata with primary store enabled
         primary_fungible_store::create_primary_store_enabled_fungible_asset(
@@ -113,19 +112,6 @@ module creatorvault::creator_token {
         });
     }
 
-    /// Helper function to get token data
-    fun get_token_data(creator: address, token_id: vector<u8>): &TokenData acquires CreatorTokens {
-        let creator_tokens = borrow_global<CreatorTokens>(creator);
-        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
-        table::borrow(&creator_tokens.tokens, token_id)
-    }
-
-    /// Helper function to get mutable token data
-    fun get_token_data_mut(creator: address, token_id: vector<u8>): &mut TokenData acquires CreatorTokens {
-        let creator_tokens = borrow_global_mut<CreatorTokens>(creator);
-        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
-        table::borrow_mut(&mut creator_tokens.tokens, token_id)
-    }
 
     /// Mint tokens to a recipient (only creator can call)
     entry fun mint(
@@ -135,7 +121,9 @@ module creatorvault::creator_token {
         amount: u64,
     ) acquires CreatorTokens {
         let creator_addr = signer::address_of(creator);
-        let token_data = get_token_data_mut(creator_addr, token_id);
+        let creator_tokens = borrow_global_mut<CreatorTokens>(creator_addr);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow_mut(&mut creator_tokens.tokens, token_id);
         
         // Only creator can mint
         assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
@@ -167,7 +155,9 @@ module creatorvault::creator_token {
         min_tokens_received: u64,  // Minimum tokens expected (slippage protection)
     ) acquires CreatorTokens {
         let buyer_addr = signer::address_of(buyer);
-        let token_data = get_token_data_mut(creator, token_id);
+        let creator_tokens = borrow_global_mut<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow_mut(&mut creator_tokens.tokens, token_id);
         
         // Validate payment
         assert!(apt_payment > 0, error::invalid_argument(E_INVALID_AMOUNT));
@@ -227,7 +217,9 @@ module creatorvault::creator_token {
     ) acquires CreatorTokens {
         let seller_addr = signer::address_of(seller);
         let creator_addr = signer::address_of(creator_signer);
-        let token_data = get_token_data_mut(creator_addr, token_id);
+        let creator_tokens = borrow_global_mut<CreatorTokens>(creator_addr);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow_mut(&mut creator_tokens.tokens, token_id);
         
         // Validate amount
         assert!(token_amount > 0, error::invalid_argument(E_INVALID_AMOUNT));
@@ -274,7 +266,9 @@ module creatorvault::creator_token {
         recipient: address,
         amount: u64,
     ) acquires CreatorTokens {
-        let token_data = get_token_data(creator, token_id);
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
         primary_fungible_store::transfer(sender, token_data.metadata, recipient, amount);
     }
 
@@ -285,7 +279,9 @@ module creatorvault::creator_token {
         amount: u64,
     ) acquires CreatorTokens {
         let creator_addr = signer::address_of(creator);
-        let token_data = get_token_data_mut(creator_addr, token_id);
+        let creator_tokens = borrow_global_mut<CreatorTokens>(creator_addr);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow_mut(&mut creator_tokens.tokens, token_id);
         
         // Only creator can burn
         assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
@@ -307,38 +303,50 @@ module creatorvault::creator_token {
     /// Get the metadata object address for a token
     #[view]
     public fun get_metadata_address(creator: address, token_id: vector<u8>): Object<Metadata> acquires CreatorTokens {
-        get_token_data(creator, token_id).metadata
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).metadata
     }
 
     /// Get token balance for an account
     #[view]
     public fun get_balance(creator: address, token_id: vector<u8>, account: address): u64 acquires CreatorTokens {
-        let token_data = get_token_data(creator, token_id);
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
         primary_fungible_store::balance(account, token_data.metadata)
     }
 
     /// Get current supply
     #[view]
     public fun get_current_supply(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
-        get_token_data(creator, token_id).current_supply
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).current_supply
     }
 
     /// Get total supply
     #[view]
     public fun get_total_supply(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
-        get_token_data(creator, token_id).total_supply
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).total_supply
     }
 
     /// Get APT reserve
     #[view]
     public fun get_apt_reserve(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
-        get_token_data(creator, token_id).apt_reserve
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        table::borrow(&creator_tokens.tokens, token_id).apt_reserve
     }
 
     /// Get current price (reserve / supply)
     #[view]
     public fun get_current_price(creator: address, token_id: vector<u8>): u64 acquires CreatorTokens {
-        let token_data = get_token_data(creator, token_id);
+        let creator_tokens = borrow_global<CreatorTokens>(creator);
+        assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
+        let token_data = table::borrow(&creator_tokens.tokens, token_id);
         let supply = token_data.current_supply;
         if (supply == 0) {
             return 0
