@@ -4025,15 +4025,15 @@ def get_predictions():
         
         predictions = []
         try:
-        if status_filter == 'all':
-            cursor.execute('''
-                SELECT prediction_id, creator_address, content_url, platform, metric_type,
-                       target_value, timeframe_hours, end_time, yes_pool, no_pool,
-                       status, outcome, initial_value, final_value, created_at
-                FROM predictions
-                ORDER BY created_at DESC
-            ''')
-        else:
+            if status_filter == 'all':
+                cursor.execute('''
+                    SELECT prediction_id, creator_address, content_url, platform, metric_type,
+                           target_value, timeframe_hours, end_time, yes_pool, no_pool,
+                           status, outcome, initial_value, final_value, created_at
+                    FROM predictions
+                    ORDER BY created_at DESC
+                ''')
+            else:
             cursor.execute('''
                 SELECT prediction_id, creator_address, content_url, platform, metric_type,
                        target_value, timeframe_hours, end_time, yes_pool, no_pool,
