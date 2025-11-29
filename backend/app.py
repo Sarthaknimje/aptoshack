@@ -3531,7 +3531,7 @@ def get_youtube_videos():
             
             # Format videos with tokenization status
             videos = []
-        for item in videos_response.get('items', []):
+            for item in videos_response.get('items', []):
             video_id = item['id']['videoId']
             video_data = {
                 'id': video_id,
