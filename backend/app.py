@@ -1159,15 +1159,15 @@ def get_youtube_channel():
                 # Try to return cached data even if stale
                 if cache_row:
                     cached_data = json.loads(cached_data_json)
-        return jsonify({
+                    return jsonify({
                         "success": True,
                         "channel": cached_data,
                         "cached": True,
                         "warning": "Using cached data due to API quota limit"
                     })
                 else:
-        return jsonify({
-            "success": False,
+                    return jsonify({
+                        "success": False,
                         "error": "YouTube API quota exceeded. Please try again later.",
                         "quotaExceeded": True
                     }), 429
