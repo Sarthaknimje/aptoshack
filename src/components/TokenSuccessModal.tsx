@@ -1,5 +1,6 @@
 import React from 'react'
 import { motion } from 'framer-motion'
+import { Database, ExternalLink } from 'lucide-react'
 import ConfettiAnimation from './ConfettiAnimation'
 
 // Placeholder type - will be replaced with Aptos token type
