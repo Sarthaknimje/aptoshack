@@ -210,7 +210,6 @@ module creatorvault::creator_token {
     entry fun sell_tokens(
         seller: &signer,
         creator_signer: &signer,
-        creator: address,
         token_id: vector<u8>,
         token_amount: u64,
         min_apt_received: u64,

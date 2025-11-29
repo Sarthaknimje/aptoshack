@@ -3,7 +3,7 @@ name = "creatorvault"
 version = "1.0.0"
 
 [addresses]
-creatorvault = "0x9f3074e3274423b1312330ec60c4257e7ccb44d88aac8f53eeb3fe6a5d8b02ba"
+creatorvault = "0xfbc34c56aab6dcbe5aa1c9c47807e8fc80f0e674341b11a5b4b6a742764cd0e2"
 
 [dependencies.AptosFramework]
 git = "https://github.com/aptos-labs/aptos-core.git"

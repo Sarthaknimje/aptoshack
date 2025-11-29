@@ -2,8 +2,8 @@
 // Aptos testnet API endpoint
 const APTOS_NODE_URL = 'https://fullnode.testnet.aptoslabs.com'
 
-// Contract module address
-const MODULE_ADDRESS = "0x9f3074e3274423b1312330ec60c4257e7ccb44d88aac8f53eeb3fe6a5d8b02ba"
+// Contract module address (updated to match sender address)
+const MODULE_ADDRESS = "0xfbc34c56aab6dcbe5aa1c9c47807e8fc80f0e674341b11a5b4b6a742764cd0e2"
 
 // Transaction queue to prevent multiple simultaneous transactions
 let transactionInProgress = false
