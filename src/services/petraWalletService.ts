@@ -465,6 +465,35 @@ export async function getTotalSupply(creatorAddress: string): Promise<number> {
 }
 
 /**
+ * Get APT reserve for a token
+ */
+export async function getAptReserve(creatorAddress: string): Promise<number> {
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_apt_reserve`,
+        type_arguments: [],
+        arguments: [creatorAddress]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch APT reserve')
+    }
+
+    const data = await response.json()
+    // Convert octas to APT (1 APT = 100000000 octas)
+    const octas = parseInt(data[0] || '0', 10)
+    return octas / 100000000
+  } catch (error) {
+    console.error('❌ Error getting APT reserve:', error)
+    return 0
+  }
+}
+
+/**
  * Get metadata address for a token
  */
 export async function getMetadataAddress(creatorAddress: string): Promise<string> {

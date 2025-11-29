@@ -38,7 +38,7 @@ import {
 import { useWallet } from '../contexts/WalletContext'
 import { PetraWalletIcon, YouTubeIcon, InstagramIcon, TwitterIcon, LinkedInIcon } from '../assets/icons'
 import { TradingService, TradeEstimate } from '../services/tradingService'
-import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract, getTokenBalance, getCurrentSupply, getTotalSupply } from '../services/petraWalletService'
+import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract, getTokenBalance, getCurrentSupply, getTotalSupply, getAptReserve } from '../services/petraWalletService'
 import TradeSuccessModal from '../components/TradeSuccessModal'
 import ConfettiAnimation from '../components/ConfettiAnimation'
 import BondingCurveChart from '../components/BondingCurveChart'
@@ -503,21 +503,42 @@ const TradingMarketplace: React.FC = () => {
             return
           }
           
+          // Get APT payment from estimate
+          const aptPayment = estimate.algo_cost
+          
           // Calculate how many tokens the contract will mint from the APT payment
-          // Contract formula: tokens_received = apt_payment / base_price (for first buy)
-          // base_price = 1000 octas = 0.00001 APT
-          const basePricePerToken = 0.00001 // APT per token
-          const estimatedTokensFromContract = algoAmount / basePricePerToken
+          // Contract formula depends on current supply:
+          // - If old_supply == 0: tokens_received = apt_payment / base_price (base_price = 1000 octas = 0.00001 APT)
+          // - If old_supply > 0: tokens_received = apt_payment / (old_reserve / old_supply)
+          const basePricePerToken = 0.00001 // APT per token (1000 octas)
+          let estimatedTokensFromContract: number
+          
+          if (currentSupply === 0) {
+            // First buy: use base price
+            estimatedTokensFromContract = aptPayment / basePricePerToken
+          } else {
+            // Subsequent buys: price = reserve / supply
+            const aptReserve = await getAptReserve(tokenData.creator)
+            const currentPricePerToken = aptReserve / currentSupply
+            estimatedTokensFromContract = aptPayment / currentPricePerToken
+          }
           
           // Check if contract will try to mint more than available
           if (estimatedTokensFromContract > availableSupply) {
-            // Adjust APT payment to match available supply
-            const maxAptForAvailableTokens = availableSupply * basePricePerToken
+            // Calculate maximum APT payment for available supply
+            let maxAptForAvailableTokens: number
+            if (currentSupply === 0) {
+              maxAptForAvailableTokens = availableSupply * basePricePerToken
+            } else {
+              const aptReserve = await getAptReserve(tokenData.creator)
+              const currentPricePerToken = aptReserve / currentSupply
+              maxAptForAvailableTokens = availableSupply * currentPricePerToken
+            }
             
             setTradeError(
               `Insufficient token supply! ` +
               `Available: ${availableSupply.toFixed(2)} tokens, ` +
-              `but your payment of ${algoAmount.toFixed(6)} APT would mint ~${estimatedTokensFromContract.toFixed(2)} tokens. ` +
+              `but your payment of ${aptPayment.toFixed(6)} APT would mint ~${estimatedTokensFromContract.toFixed(2)} tokens. ` +
               `Maximum you can buy: ${maxAptForAvailableTokens.toFixed(6)} APT (${availableSupply.toFixed(2)} tokens). ` +
               `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}. ` +
               `Please reduce your amount to ${availableSupply.toFixed(2)} tokens or less.`
