@@ -831,8 +831,8 @@ def youtube_callback():
             
             # Check for deleted client error
             if 'deleted_client' in error_msg or '401' in error_msg:
-            return jsonify({
-                "success": False,
+                return jsonify({
+                    "success": False,
                     "error": "OAuth client was deleted. Please create a new OAuth client in Google Cloud Console and update YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in your environment variables."
                 }), 401
             
