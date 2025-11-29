@@ -3527,7 +3527,7 @@ def get_youtube_videos():
                 logger.info(f"No tokenized videos found (database may be empty): {e}")
                 tokenized_videos = {}
             finally:
-        conn.close()
+                conn.close()
         
         # Format videos with tokenization status
         videos = []
