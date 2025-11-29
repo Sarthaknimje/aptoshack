@@ -291,6 +291,25 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
     
+    # Add premium content columns for Shelby Protocol integration
+    try:
+        cursor.execute('ALTER TABLE tokens ADD COLUMN premium_content_url TEXT')
+        logger.info("Added premium_content_url column to tokens table")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute('ALTER TABLE tokens ADD COLUMN premium_content_blob_id TEXT')
+        logger.info("Added premium_content_blob_id column to tokens table")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    try:
+        cursor.execute('ALTER TABLE tokens ADD COLUMN premium_content_type TEXT')
+        logger.info("Added premium_content_type column to tokens table")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
     # Create unique index on token_id if it doesn't exist
     try:
         cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_tokens_token_id ON tokens(token_id)')
@@ -1264,8 +1283,9 @@ def create_creator_token():
             INSERT INTO tokens (token_id, metadata_address, creator, token_name, token_symbol, total_supply, 
                               current_price, market_cap, youtube_channel_title, youtube_subscribers,
                               bonding_curve_config, bonding_curve_state, platform, content_url,
-                              content_id, content_description, content_thumbnail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                              content_id, content_description, content_thumbnail,
+                              premium_content_url, premium_content_blob_id, premium_content_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
             content_id,  # token_id (unique identifier - content_id)
             asset_id,    # metadata_address (Aptos FA metadata object address)
@@ -1283,7 +1303,10 @@ def create_creator_token():
             data.get('content_url', ''),
             content_id,  # content_id (same as token_id)
             data.get('description', ''),
-            data.get('content_thumbnail', '')
+            data.get('content_thumbnail', ''),
+            data.get('premium_content_url'),  # Shelby blob URL
+            data.get('premium_content_blob_id'),  # Shelby blob ID
+            data.get('premium_content_type', 'video')  # Content type (video/image/audio/document)
         ))
         
         conn.commit()

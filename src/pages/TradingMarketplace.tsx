@@ -46,6 +46,7 @@ import BondingCurveChart from '../components/BondingCurveChart'
 import SVGBackground from '../components/SVGBackground'
 import PremiumBackground from '../components/PremiumBackground'
 import PremiumContentGate from '../components/PremiumContentGate'
+import ShelbyStorageInfo from '../components/ShelbyStorageInfo'
 
 interface TradeData {
   type: 'buy' | 'sell'
@@ -2172,6 +2173,15 @@ const TradingMarketplace: React.FC = () => {
               minimumBalance={1}
               className="w-full"
             />
+            
+            {/* Shelby Storage Information */}
+            <div className="mt-4">
+              <ShelbyStorageInfo
+                blobUrl={tokenData.premium_content_url}
+                blobId={tokenData.premium_content_blob_id}
+                contentType={tokenData.premium_content_type || 'video'}
+              />
+            </div>
           </motion.div>
         )}
       </div>

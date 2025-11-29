@@ -33,7 +33,8 @@ import {
   Globe,
   Wallet,
   Bookmark,
-  X
+  X,
+  Upload
 } from 'lucide-react'
 import { useWallet } from '../contexts/WalletContext'
 import { socialMediaService, SocialMediaContent } from '../services/socialMediaService'
@@ -236,13 +237,36 @@ const MultiPlatformTokenization: React.FC = () => {
     setShowTokenizeModal(true)
   }
 
-  const executeTokenization = async (tokenName: string, tokenSymbol: string, totalSupply: number) => {
+  const executeTokenization = async (
+    tokenName: string,
+    tokenSymbol: string,
+    totalSupply: number,
+    premiumContent?: File,
+    premiumContentType?: string
+  ) => {
     if (!scrapedContent || !address || !petraWallet) return
 
     setTokenizing(true)
     setError(null)
 
+    let premiumContentUrl: string | null = null
+    let premiumContentBlobId: string | null = null
+
     try {
+      // Upload premium content to Shelby if provided
+      if (premiumContent) {
+        try {
+          const { uploadPremiumContent } = await import('../services/shelbyService')
+          const blobName = `premium_${tokenSymbol}_${Date.now()}`
+          const uploadResult = await uploadPremiumContent(premiumContent, blobName, 365)
+          premiumContentUrl = uploadResult.blobUrl
+          premiumContentBlobId = uploadResult.blobId
+          console.log(`✅ Premium content uploaded to Shelby: ${premiumContentUrl}`)
+        } catch (uploadError) {
+          console.warn('⚠️ Failed to upload premium content to Shelby:', uploadError)
+          // Continue with tokenization even if premium content upload fails
+        }
+      }
       // Skip ownership verification for Instagram, Twitter, LinkedIn - allow tokenization
       // Only YouTube requires ownership verification (via API)
 
@@ -316,7 +340,10 @@ const MultiPlatformTokenization: React.FC = () => {
           platform: scrapedContent.platform || selectedPlatform,
           content_id: tokenId, // Use same tokenId as contract (critical for buy/sell operations)
           content_url: scrapedContent.url,
-          content_thumbnail: scrapedContent.thumbnailUrl || ''
+          content_thumbnail: scrapedContent.thumbnailUrl || '',
+          premium_content_url: premiumContentUrl,
+          premium_content_blob_id: premiumContentBlobId,
+          premium_content_type: premiumContentType || 'video'
         })
       })
 
@@ -863,7 +890,7 @@ const MultiPlatformTokenization: React.FC = () => {
 interface TokenizeModalProps {
   content: SocialMediaContent
   onClose: () => void
-  onTokenize: (name: string, symbol: string, supply: number) => void
+  onTokenize: (name: string, symbol: string, supply: number, premiumContent?: File, premiumContentType?: string) => void
   loading: boolean
 }
 
@@ -876,10 +903,43 @@ const TokenizeModal: React.FC<TokenizeModalProps> = ({
   const [tokenName, setTokenName] = useState(content.title.substring(0, 32))
   const [tokenSymbol, setTokenSymbol] = useState('')
   const [totalSupply, setTotalSupply] = useState('1000000')
+  const [premiumContent, setPremiumContent] = useState<File | null>(null)
+  const [premiumContentType, setPremiumContentType] = useState<string>('video')
+  const [uploadingPremium, setUploadingPremium] = useState(false)
+  const [premiumContentPreview, setPremiumContentPreview] = useState<string | null>(null)
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) {
+      setPremiumContent(file)
+      
+      // Determine content type
+      if (file.type.startsWith('video/')) {
+        setPremiumContentType('video')
+      } else if (file.type.startsWith('image/')) {
+        setPremiumContentType('image')
+      } else if (file.type.startsWith('audio/')) {
+        setPremiumContentType('audio')
+      } else {
+        setPremiumContentType('document')
+      }
+      
+      // Create preview
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader()
+        reader.onload = (e) => {
+          setPremiumContentPreview(e.target?.result as string)
+        }
+        reader.readAsDataURL(file)
+      } else {
+        setPremiumContentPreview(null)
+      }
+    }
+  }
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    onTokenize(tokenName, tokenSymbol, parseInt(totalSupply))
+    onTokenize(tokenName, tokenSymbol, parseInt(totalSupply), premiumContent || undefined, premiumContentType)
   }
 
   return (
@@ -925,6 +985,74 @@ const TokenizeModal: React.FC<TokenizeModalProps> = ({
               className="w-full px-4 py-3 bg-white/5 border border-white/20 rounded-xl text-white"
               required
             />
+          </div>
+
+          {/* Premium Content Upload */}
+          <div className="border-t border-white/10 pt-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Coins className="w-5 h-5 text-yellow-400" />
+              <label className="block text-white font-medium">Premium Content (Optional)</label>
+              <span className="text-xs text-gray-400">Token-gated access</span>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">
+              Upload exclusive content that only token holders can access. Stored on Shelby Protocol.
+            </p>
+            
+            <div className="space-y-3">
+              <div>
+                <label className="block text-sm text-gray-300 mb-2">Content Type</label>
+                <select
+                  value={premiumContentType}
+                  onChange={(e) => setPremiumContentType(e.target.value)}
+                  className="w-full px-4 py-2 bg-white/5 border border-white/20 rounded-xl text-white text-sm"
+                >
+                  <option value="video">Video</option>
+                  <option value="image">Image</option>
+                  <option value="audio">Audio</option>
+                  <option value="document">Document</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm text-gray-300 mb-2">Upload File</label>
+                <div className="relative">
+                  <input
+                    type="file"
+                    onChange={handleFileChange}
+                    accept="video/*,image/*,audio/*,.pdf,.doc,.docx"
+                    className="hidden"
+                    id="premium-content-upload"
+                  />
+                  <label
+                    htmlFor="premium-content-upload"
+                    className="flex items-center justify-center w-full px-4 py-3 bg-white/5 border-2 border-dashed border-white/20 rounded-xl text-white cursor-pointer hover:bg-white/10 hover:border-white/30 transition-colors"
+                  >
+                    <Upload className="w-5 h-5 mr-2" />
+                    <span className="text-sm">
+                      {premiumContent ? premiumContent.name : 'Choose premium content file'}
+                    </span>
+                  </label>
+                </div>
+              </div>
+              
+              {premiumContentPreview && (
+                <div className="mt-2">
+                  <img
+                    src={premiumContentPreview}
+                    alt="Preview"
+                    className="w-full h-32 object-cover rounded-xl"
+                  />
+                </div>
+              )}
+              
+              {premiumContent && (
+                <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+                  <p className="text-xs text-yellow-200">
+                    ✓ {premiumContent.name} ({premiumContentType}) will be uploaded to Shelby Protocol
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="flex gap-3 pt-4">
