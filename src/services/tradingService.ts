@@ -225,10 +225,11 @@ export class TradingService {
 
   /**
    * Get token details including bonding curve state
+   * Supports both asa_id (number) for Algorand and token_id (string) for Aptos
    */
-  static async getTokenDetails(asaId: number): Promise<any> {
+  static async getTokenDetails(tokenIdentifier: number | string): Promise<any> {
     try {
-      const response = await fetch(`${BACKEND_URL}/api/token/${asaId}`)
+      const response = await fetch(`${BACKEND_URL}/api/token/${tokenIdentifier}`)
       const result = await response.json()
       if (result.success) {
         return result.token

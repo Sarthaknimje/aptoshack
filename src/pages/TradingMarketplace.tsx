@@ -123,9 +123,11 @@ const TradingMarketplace: React.FC = () => {
         if (result.success) {
           // Find token by symbol
           const token = result.tokens.find((t: any) => t.token_symbol?.trim().toUpperCase() === symbol?.toUpperCase())
-          if (token && token.asa_id) {
+          if (token && (token.asa_id || token.token_id)) {
             // Fetch detailed token info including bonding curve
-            const tokenDetails = await TradingService.getTokenDetails(token.asa_id)
+            // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
+            const tokenIdentifier = token.token_id || token.asa_id
+            const tokenDetails = await TradingService.getTokenDetails(tokenIdentifier)
             // Calculate real market cap: current_price * total_supply (always real-time, never use stored value)
             const realMarketCap = (token.current_price || 0) * (token.total_supply || 0)
             
@@ -176,8 +178,10 @@ const TradingMarketplace: React.FC = () => {
             setPriceChange24h(token.price_change_24h || 0)
             
             // Fetch user's token balance when token data is loaded
-            if (isConnected && address && enhancedToken.asa_id) {
-              fetchUserTokenBalance(enhancedToken.asa_id)
+            // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
+            const balanceIdentifier = enhancedToken.token_id || enhancedToken.asa_id
+            if (isConnected && address && balanceIdentifier) {
+              fetchUserTokenBalance(balanceIdentifier)
             }
             
             // Fetch real trade history for chart

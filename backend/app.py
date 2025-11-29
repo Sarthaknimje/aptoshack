@@ -2751,15 +2751,25 @@ def get_referral_earnings(address):
         "referrals": referrals_list
     })
 
-@app.route('/api/token/<int:asa_id>', methods=['GET'])
+@app.route('/api/token/<token_identifier>', methods=['GET'])
 @handle_errors
-def get_token_details(asa_id):
-    """Get detailed token information including bonding curve state"""
+def get_token_details(token_identifier):
+    """Get detailed token information including bonding curve state
+    Supports both asa_id (int) for legacy Algorand tokens and token_id (string) for Aptos tokens
+    """
     try:
         conn = sqlite3.connect('creatorvault.db')
         cursor = conn.cursor()
         
-        cursor.execute('SELECT * FROM tokens WHERE asa_id = ?', (asa_id,))
+        # Try to parse as integer (legacy asa_id) or use as string (Aptos token_id)
+        try:
+            asa_id_int = int(token_identifier)
+            # Use asa_id for legacy tokens
+            cursor.execute('SELECT * FROM tokens WHERE asa_id = ?', (asa_id_int,))
+        except ValueError:
+            # Use token_id for Aptos tokens (metadata address or content_id)
+            cursor.execute('SELECT * FROM tokens WHERE token_id = ?', (token_identifier,))
+        
         row = cursor.fetchone()
         
         if not row:
@@ -2783,8 +2793,12 @@ def get_token_details(asa_id):
             except:
                 pass
         
-        # Get recent trades count
-        cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (asa_id,))
+        # Get recent trades count - support both asa_id and token_id
+        try:
+            asa_id_int = int(token_identifier)
+            cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (asa_id_int,))
+        except ValueError:
+            cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ? OR token_id = ?', (token_identifier, token_identifier))
         trade_count = cursor.fetchone()[0]
         
         conn.close()
