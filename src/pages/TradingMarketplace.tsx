@@ -723,13 +723,28 @@ const TradingMarketplace: React.FC = () => {
               aptPayment: algoAmount, // APT amount to pay
               minTokensReceived: minTokensReceived // Minimum tokens expected
             })
-        
-        txId = buyResult.txId
-        finalPrice = estimate.new_price
-        
-        // Note: Token transfer is handled by the backend's bonding_curve_buy endpoint
-        // The backend transfers tokens from creator to buyer automatically
-        // No need for additional transfer here
+            
+            txId = buyResult.txId
+            finalPrice = estimate.new_price
+            
+            // Note: Token transfer is handled by the backend's bonding_curve_buy endpoint
+            // The backend transfers tokens from creator to buyer automatically
+            // No need for additional transfer here
+          } catch (error) {
+            console.error('❌ Final supply check failed:', error)
+            setTradeError(
+              `Failed to verify token supply before transaction. ` +
+              `Please refresh and try again. Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+            )
+            setIsProcessing(false)
+            return
+          }
+        } else {
+          // Fallback if creator address is missing
+          setTradeError('Token creator address not found. Please refresh and try again.')
+          setIsProcessing(false)
+          return
+        }
       } else {
         // Sell tokens using contract
         // Note: sell_tokens requires creator signer, so we'll use backend service for now
