@@ -1333,9 +1333,6 @@ const TradingMarketplace: React.FC = () => {
                     <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 font-semibold">
                       {tokenData?.token_symbol || tokenData?.symbol || 'tokens'}
                     </span>
-                    <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 font-semibold">
-                      ${tokenData.symbol}
-                    </span>
                   </div>
                   <div className="flex items-center justify-between mt-2">
                     {activeTab === 'buy' ? (
@@ -1399,12 +1396,18 @@ const TradingMarketplace: React.FC = () => {
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-gray-400">Cost:</span>
                             <span className="text-white font-medium">
-                              {tradeEstimate.algo_cost?.toFixed(4) || '0.0000'} APTOS
+                              {tradeEstimate.algo_cost?.toFixed(6) || '0.000000'} APTOS
                             </span>
                           </div>
+                          {tradeEstimate.algo_cost && parseFloat(amount) > 0 && (
+                            <div className="flex items-center justify-between text-xs text-gray-500">
+                              <span>Price per token:</span>
+                              <span>{(tradeEstimate.algo_cost / parseFloat(amount)).toFixed(8)} APTOS</span>
+                            </div>
+                          )}
                           {tradeEstimate.new_price && (
                             <div className="flex items-center justify-between text-xs text-gray-500">
-                              <span>New price:</span>
+                              <span>New price after trade:</span>
                               <span>${tradeEstimate.new_price.toFixed(6)}</span>
                             </div>
                           )}
@@ -1414,7 +1417,7 @@ const TradingMarketplace: React.FC = () => {
                           <div className="flex items-center justify-between text-sm">
                             <span className="text-gray-400">You will receive:</span>
                             <span className="text-green-400 font-semibold">
-                              {tradeEstimate.algo_received?.toFixed(4) || '0.0000'} APTOS
+                              {tradeEstimate.algo_received?.toFixed(6) || '0.000000'} APTOS
                             </span>
                           </div>
                           <div className="flex items-center justify-between text-sm">
@@ -1423,9 +1426,15 @@ const TradingMarketplace: React.FC = () => {
                               {parseFloat(amount).toFixed(2)} {tokenData?.token_symbol || tokenData?.symbol || 'tokens'}
                             </span>
                           </div>
+                          {tradeEstimate.algo_received && parseFloat(amount) > 0 && (
+                            <div className="flex items-center justify-between text-xs text-gray-500">
+                              <span>Price per token:</span>
+                              <span>{(tradeEstimate.algo_received / parseFloat(amount)).toFixed(8)} APTOS</span>
+                            </div>
+                          )}
                           {tradeEstimate.new_price && (
                             <div className="flex items-center justify-between text-xs text-gray-500">
-                              <span>New price:</span>
+                              <span>New price after trade:</span>
                               <span>${tradeEstimate.new_price.toFixed(6)}</span>
                             </div>
                           )}
