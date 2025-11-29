@@ -1103,22 +1103,22 @@ def get_youtube_channel():
                 client_secret=credentials_data['client_secret'],
                 scopes=credentials_data['scopes']
             )
-        
-        # Refresh token if needed
-        if credentials.expired:
-            credentials.refresh(Request())
-        
-        youtube = build('youtube', 'v3', credentials=credentials)
-        channels_response = youtube.channels().list(
-            part='snippet,statistics',
-            mine=True
-        ).execute()
-        
-        if channels_response['items']:
-            channel = channels_response['items'][0]
-            snippet = channel['snippet']
-            statistics = channel['statistics']
             
+            # Refresh token if needed
+            if credentials.expired:
+                credentials.refresh(Request())
+            
+            youtube = build('youtube', 'v3', credentials=credentials)
+            channels_response = youtube.channels().list(
+                part='snippet,statistics',
+                mine=True
+            ).execute()
+            
+            if channels_response['items']:
+                channel = channels_response['items'][0]
+                snippet = channel['snippet']
+                statistics = channel['statistics']
+                
                 channel_data = {
                     "id": channel['id'],
                     "title": snippet['title'],
@@ -1145,13 +1145,12 @@ def get_youtube_channel():
                     "success": True,
                     "channel": channel_data,
                     "cached": False
-            })
-        else:
-            return jsonify({
-                "success": False,
-                "error": "No channel found"
-            }), 404
-            
+                })
+            else:
+                return jsonify({
+                    "success": False,
+                    "error": "No channel found"
+                }), 404
         except HttpError as http_err:
             # Handle quota exceeded error
             if http_err.resp.status == 403 and 'quotaExceeded' in str(http_err):
