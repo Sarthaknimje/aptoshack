@@ -282,6 +282,22 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # Column already exists
     
+    # Add token_id column if it doesn't exist (for Aptos content_id-based tokens)
+    try:
+        cursor.execute('ALTER TABLE tokens ADD COLUMN token_id TEXT')
+        logger.info("Added token_id column to tokens table")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    # Create unique index on token_id if it doesn't exist
+    try:
+        cursor.execute('CREATE UNIQUE INDEX IF NOT EXISTS idx_tokens_token_id ON tokens(token_id)')
+        logger.info("Created unique index on token_id")
+    except sqlite3.OperationalError as e:
+        logger.warning(f"Could not create unique index on token_id: {e}")
+    
+    conn.commit()
+    
     # Handle migration from old asa_id column to token_id
     try:
         # Check if asa_id column exists
@@ -290,14 +306,7 @@ def init_db():
         has_asa_id = any(col[1] == 'asa_id' for col in columns)
         
         if has_asa_id:
-            # Check if there's a UNIQUE constraint on asa_id that we need to remove
-            # SQLite doesn't support DROP CONSTRAINT directly, so we'll recreate the table
-            # But first, let's try to add asa_id column without UNIQUE if it doesn't exist
-            # For now, we'll just ensure token_id is used instead
             logger.info("Database has asa_id column. Using token_id for new tokens.")
-            
-            # Try to remove UNIQUE constraint by recreating table (only if needed)
-            # For now, we'll just ensure we use token_id in INSERTs
     except Exception as e:
         logger.warning(f"Could not check asa_id column: {e}")
     
