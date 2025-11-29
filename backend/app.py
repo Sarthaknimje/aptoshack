@@ -852,8 +852,8 @@ def youtube_callback():
             
             # Check for deleted client error
             if 'deleted_client' in error_msg or '401' in error_msg:
-                return jsonify({
-                    "success": False,
+            return jsonify({
+                "success": False,
                     "error": "OAuth client was deleted. Please create a new OAuth client in Google Cloud Console and update YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET in your environment variables."
                 }), 401
             
@@ -1082,31 +1082,31 @@ def get_youtube_channel():
         # If no cache or cache is stale, try to fetch from API
         # But handle quota errors gracefully
         try:
-            credentials_data = session_data['credentials']
-            credentials = Credentials(
-                token=credentials_data['token'],
-                refresh_token=credentials_data['refresh_token'],
-                token_uri=credentials_data['token_uri'],
-                client_id=credentials_data['client_id'],
-                client_secret=credentials_data['client_secret'],
-                scopes=credentials_data['scopes']
-            )
+        credentials_data = session_data['credentials']
+        credentials = Credentials(
+            token=credentials_data['token'],
+            refresh_token=credentials_data['refresh_token'],
+            token_uri=credentials_data['token_uri'],
+            client_id=credentials_data['client_id'],
+            client_secret=credentials_data['client_secret'],
+            scopes=credentials_data['scopes']
+        )
+        
+        # Refresh token if needed
+        if credentials.expired:
+            credentials.refresh(Request())
+        
+        youtube = build('youtube', 'v3', credentials=credentials)
+        channels_response = youtube.channels().list(
+            part='snippet,statistics',
+            mine=True
+        ).execute()
+        
+        if channels_response['items']:
+            channel = channels_response['items'][0]
+            snippet = channel['snippet']
+            statistics = channel['statistics']
             
-            # Refresh token if needed
-            if credentials.expired:
-                credentials.refresh(Request())
-            
-            youtube = build('youtube', 'v3', credentials=credentials)
-            channels_response = youtube.channels().list(
-                part='snippet,statistics',
-                mine=True
-            ).execute()
-            
-            if channels_response['items']:
-                channel = channels_response['items'][0]
-                snippet = channel['snippet']
-                statistics = channel['statistics']
-                
                 channel_data = {
                     "id": channel['id'],
                     "title": snippet['title'],
@@ -1133,13 +1133,13 @@ def get_youtube_channel():
                     "success": True,
                     "channel": channel_data,
                     "cached": False
-                })
-            else:
-                return jsonify({
-                    "success": False,
-                    "error": "No channel found"
-                }), 404
-                
+            })
+        else:
+            return jsonify({
+                "success": False,
+                "error": "No channel found"
+            }), 404
+            
         except HttpError as http_err:
             # Handle quota exceeded error
             if http_err.resp.status == 403 and 'quotaExceeded' in str(http_err):
@@ -1148,15 +1148,15 @@ def get_youtube_channel():
                 # Try to return cached data even if stale
                 if cache_row:
                     cached_data = json.loads(cached_data_json)
-                    return jsonify({
+        return jsonify({
                         "success": True,
                         "channel": cached_data,
                         "cached": True,
                         "warning": "Using cached data due to API quota limit"
                     })
                 else:
-                    return jsonify({
-                        "success": False,
+        return jsonify({
+            "success": False,
                         "error": "YouTube API quota exceeded. Please try again later.",
                         "quotaExceeded": True
                     }), 429
@@ -1171,8 +1171,8 @@ def get_youtube_channel():
             try:
                 cached_data = json.loads(cached_data_json)
                 logger.info(f"⚠️ Error occurred, returning cached data as fallback")
-                return jsonify({
-                    "success": True,
+        return jsonify({
+            "success": True,
                     "channel": cached_data,
                     "cached": True,
                     "warning": "Using cached data due to error"
@@ -1830,12 +1830,12 @@ def get_trades(token_identifier):
                 token_row = cursor.fetchone()
                 if token_row:
                     asa_id_from_token = token_row[0]
-                    cursor.execute(f'''
-                        SELECT trade_type, amount, price, created_at, transaction_id, trader_address
-                        FROM trades
-                        WHERE asa_id = ? AND created_at >= {time_filter}
-                        ORDER BY created_at DESC
-                        LIMIT ?
+        cursor.execute(f'''
+            SELECT trade_type, amount, price, created_at, transaction_id, trader_address
+            FROM trades
+            WHERE asa_id = ? AND created_at >= {time_filter}
+            ORDER BY created_at DESC
+            LIMIT ?
                     ''', (asa_id_from_token, limit))
                 else:
                     # No token found, return empty
@@ -3331,10 +3331,10 @@ def bonding_curve_estimate():
             # Update database - support both asa_id and token_id
             try:
                 asa_id_int = int(token_identifier)
-                cursor.execute('''
-                    UPDATE tokens 
-                    SET bonding_curve_config = ?, bonding_curve_state = ?
-                    WHERE asa_id = ?
+            cursor.execute('''
+                UPDATE tokens 
+                SET bonding_curve_config = ?, bonding_curve_state = ?
+                WHERE asa_id = ?
                 ''', (bonding_curve_config_json, bonding_curve_state_json, asa_id_int))
             except ValueError:
                 cursor.execute('''
@@ -3941,15 +3941,15 @@ def get_youtube_videos():
             youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
             
             # Get all videos using API key (public data)
-            videos_response = youtube.search().list(
-                part='snippet',
-                channelId=channel_id,
-                type='video',
-                maxResults=50,
+        videos_response = youtube.search().list(
+            part='snippet',
+            channelId=channel_id,
+            type='video',
+            maxResults=50,
                 order='date',
                 key=YOUTUBE_API_KEY
-            ).execute()
-            
+        ).execute()
+        
             # Get channel info using API key
             channels_response = youtube.channels().list(
                 part='snippet,statistics',
@@ -3981,62 +3981,62 @@ def get_youtube_videos():
             else:
                 channel = channels_response['items'][0]
             
-            # Get tokenized videos from database
+        # Get tokenized videos from database
             init_db()
-            conn = sqlite3.connect('creatorvault.db')
-            cursor = conn.cursor()
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
             
             tokenized_videos = {}
             try:
-                # Check both content_id and content_url for YouTube videos
-                cursor.execute('''
+        # Check both content_id and content_url for YouTube videos
+        cursor.execute('''
                     SELECT content_id, content_url, token_id, token_name, token_symbol 
-                    FROM tokens 
-                    WHERE platform = ? AND (content_id IS NOT NULL OR content_url IS NOT NULL)
-                ''', ('youtube',))
-                
-                for row in cursor.fetchall():
+            FROM tokens 
+            WHERE platform = ? AND (content_id IS NOT NULL OR content_url IS NOT NULL)
+        ''', ('youtube',))
+        
+        for row in cursor.fetchall():
                     content_id, content_url, token_id, token_name, token_symbol = row
-                    # Extract video ID from content_id or content_url
-                    video_id = None
-                    if content_id:
-                        video_id = content_id
-                    elif content_url:
-                        # Extract video ID from YouTube URL
-                        import re
-                        match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})', content_url)
-                        if match:
-                            video_id = match.group(1)
-                    
-                    if video_id:
-                        tokenized_videos[video_id] = {
+            # Extract video ID from content_id or content_url
+            video_id = None
+            if content_id:
+                video_id = content_id
+            elif content_url:
+                # Extract video ID from YouTube URL
+                import re
+                match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})', content_url)
+                if match:
+                    video_id = match.group(1)
+            
+            if video_id:
+                tokenized_videos[video_id] = {
                             'token_id': token_id,
-                            'token_name': token_name,
-                            'token_symbol': token_symbol
-                        }
+                    'token_name': token_name,
+                    'token_symbol': token_symbol
+                }
             except sqlite3.OperationalError as e:
                 # Table doesn't exist yet or database is empty - this is fine
                 logger.info(f"No tokenized videos found (database may be empty): {e}")
                 tokenized_videos = {}
             finally:
-                conn.close()
-            
-            # Format videos with tokenization status
-            videos = []
-            for item in videos_response.get('items', []):
-                video_id = item['id']['videoId']
-                video_data = {
-                    'id': video_id,
-                    'title': item['snippet']['title'],
-                    'description': item['snippet']['description'],
-                    'thumbnail': item['snippet']['thumbnails']['high']['url'],
-                    'publishedAt': item['snippet']['publishedAt'],
-                    'url': f"https://www.youtube.com/watch?v={video_id}",
-                    'isTokenized': video_id in tokenized_videos,
-                    'tokenInfo': tokenized_videos.get(video_id)
-                }
-                videos.append(video_data)
-            
+        conn.close()
+        
+        # Format videos with tokenization status
+        videos = []
+        for item in videos_response.get('items', []):
+            video_id = item['id']['videoId']
+            video_data = {
+                'id': video_id,
+                'title': item['snippet']['title'],
+                'description': item['snippet']['description'],
+                'thumbnail': item['snippet']['thumbnails']['high']['url'],
+                'publishedAt': item['snippet']['publishedAt'],
+                'url': f"https://www.youtube.com/watch?v={video_id}",
+                'isTokenized': video_id in tokenized_videos,
+                'tokenInfo': tokenized_videos.get(video_id)
+            }
+            videos.append(video_data)
+        
             # Cache the videos
             conn = sqlite3.connect('creatorvault.db')
             cursor = conn.cursor()
@@ -4050,13 +4050,13 @@ def get_youtube_videos():
             
             logger.info(f"✅ Fetched and cached {len(videos)} YouTube videos for {channel_title}")
             
-            return jsonify({
-                "success": True,
-                "videos": videos,
-                "channel": {
-                    "id": channel_id,
-                    "title": channel['snippet']['title'],
-                    "subscriberCount": int(channel['statistics'].get('subscriberCount', 0))
+        return jsonify({
+            "success": True,
+            "videos": videos,
+            "channel": {
+                "id": channel_id,
+                "title": channel['snippet']['title'],
+                "subscriberCount": int(channel['statistics'].get('subscriberCount', 0))
                 },
                 "cached": False
             })
@@ -4213,13 +4213,13 @@ def get_youtube_video_info():
             # Use API key for public video data (much higher quota)
             youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
             
-            video_response = youtube.videos().list(
-                part='snippet,statistics,contentDetails',
+        video_response = youtube.videos().list(
+            part='snippet,statistics,contentDetails',
                 id=video_id,
                 key=YOUTUBE_API_KEY
-            ).execute()
-            
-            if not video_response.get('items'):
+        ).execute()
+        
+        if not video_response.get('items'):
                 # Try to return cached data even if stale
                 if cache_row:
                     cached_video = json.loads(cached_video_json)
@@ -4254,53 +4254,53 @@ def get_youtube_video_info():
                         "content": cached_video,
                         "verified": is_owned
                     })
-                return jsonify({"success": False, "error": "Video not found or not accessible"}), 404
-            
-            video = video_response['items'][0]
-            video_channel_id = video['snippet']['channelId']
-            
-            # CRITICAL: Verify the video belongs to the connected channel
+            return jsonify({"success": False, "error": "Video not found or not accessible"}), 404
+        
+        video = video_response['items'][0]
+        video_channel_id = video['snippet']['channelId']
+        
+        # CRITICAL: Verify the video belongs to the connected channel
             is_owned = (video_channel_id == connected_channel_id) if connected_channel_id else False
-            
+        
             if not is_owned and connected_channel_id:
-                logger.warning(f"⚠️ User tried to tokenize video from another channel. Video channel: {video_channel_id}, Connected channel: {connected_channel_id}")
-            
-            # Check if already tokenized
-            conn = sqlite3.connect('creatorvault.db')
-            cursor = conn.cursor()
+            logger.warning(f"⚠️ User tried to tokenize video from another channel. Video channel: {video_channel_id}, Connected channel: {connected_channel_id}")
+        
+        # Check if already tokenized
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
             # Try token_id first, fallback to asa_id for old schema
             try:
                 cursor.execute('SELECT token_id, token_name, token_symbol FROM tokens WHERE (content_id = ? OR content_url LIKE ?) AND platform = ?', 
                               (video_id, f'%{video_id}%', 'youtube'))
-                existing_token = cursor.fetchone()
+        existing_token = cursor.fetchone()
             except sqlite3.OperationalError:
                 # Old schema uses asa_id
                 cursor.execute('SELECT asa_id, token_name, token_symbol FROM tokens WHERE (content_id = ? OR content_url LIKE ?) AND platform = ?', 
                               (video_id, f'%{video_id}%', 'youtube'))
                 existing_token = cursor.fetchone()
-            
-            video_data = {
-                'id': video_id,
-                'title': video['snippet']['title'],
-                'description': video['snippet']['description'],
-                'thumbnail': video['snippet']['thumbnails']['high']['url'],
-                'publishedAt': video['snippet']['publishedAt'],
-                'viewCount': int(video['statistics'].get('viewCount', 0)),
-                'likeCount': int(video['statistics'].get('likeCount', 0)),
-                'commentCount': int(video['statistics'].get('commentCount', 0)),
-                'channelId': video_channel_id,
-                'channelTitle': video['snippet']['channelTitle'],
-                'url': f"https://www.youtube.com/watch?v={video_id}",
-                'platform': 'youtube',
-                'isTokenized': existing_token is not None,
-                'tokenInfo': {
+        
+        video_data = {
+            'id': video_id,
+            'title': video['snippet']['title'],
+            'description': video['snippet']['description'],
+            'thumbnail': video['snippet']['thumbnails']['high']['url'],
+            'publishedAt': video['snippet']['publishedAt'],
+            'viewCount': int(video['statistics'].get('viewCount', 0)),
+            'likeCount': int(video['statistics'].get('likeCount', 0)),
+            'commentCount': int(video['statistics'].get('commentCount', 0)),
+            'channelId': video_channel_id,
+            'channelTitle': video['snippet']['channelTitle'],
+            'url': f"https://www.youtube.com/watch?v={video_id}",
+            'platform': 'youtube',
+            'isTokenized': existing_token is not None,
+            'tokenInfo': {
                     'token_id': existing_token[0],
-                    'token_name': existing_token[1],
-                    'token_symbol': existing_token[2]
-                } if existing_token else None,
-                # NEW: Add ownership verification
-                'isOwned': is_owned,
-                'connectedChannelId': connected_channel_id,
+                'token_name': existing_token[1],
+                'token_symbol': existing_token[2]
+            } if existing_token else None,
+            # NEW: Add ownership verification
+            'isOwned': is_owned,
+            'connectedChannelId': connected_channel_id,
                 'ownershipMessage': 'You own this video and can tokenize it.' if is_owned else 'This video belongs to another channel. You can only tokenize your own content.',
                 'cached': False
             }
@@ -4315,12 +4315,12 @@ def get_youtube_video_info():
             conn.close()
             
             logger.info(f"✅ Fetched and cached YouTube video info for {video_id}")
-            
-            return jsonify({
-                "success": True,
-                "content": video_data,
-                "verified": is_owned
-            })
+        
+        return jsonify({
+            "success": True,
+            "content": video_data,
+            "verified": is_owned
+        })
             
         except HttpError as http_err:
             # Handle quota exceeded - return cached data if available
@@ -4513,44 +4513,44 @@ def get_predictions():
         
         predictions = []
         try:
-            if status_filter == 'all':
-                cursor.execute('''
-                    SELECT prediction_id, creator_address, content_url, platform, metric_type,
-                           target_value, timeframe_hours, end_time, yes_pool, no_pool,
-                           status, outcome, initial_value, final_value, created_at
-                    FROM predictions
-                    ORDER BY created_at DESC
-                ''')
-            else:
-                cursor.execute('''
-                    SELECT prediction_id, creator_address, content_url, platform, metric_type,
-                           target_value, timeframe_hours, end_time, yes_pool, no_pool,
-                           status, outcome, initial_value, final_value, created_at
-                    FROM predictions
-                    WHERE status = ?
-                    ORDER BY created_at DESC
-                ''', (status_filter,))
-            
-            rows = cursor.fetchall()
-            
-            for row in rows:
-                predictions.append({
-                    "prediction_id": row[0],
-                    "creator_address": row[1],
-                    "content_url": row[2],
-                    "platform": row[3],
-                    "metric_type": row[4],
-                    "target_value": row[5],
-                    "timeframe_hours": row[6],
-                    "end_time": row[7],
-                    "yes_pool": row[8],
-                    "no_pool": row[9],
-                    "status": row[10],
-                    "outcome": row[11],
-                    "initial_value": row[12],
-                    "final_value": row[13],
-                    "created_at": row[14]
-                })
+        if status_filter == 'all':
+            cursor.execute('''
+                SELECT prediction_id, creator_address, content_url, platform, metric_type,
+                       target_value, timeframe_hours, end_time, yes_pool, no_pool,
+                       status, outcome, initial_value, final_value, created_at
+                FROM predictions
+                ORDER BY created_at DESC
+            ''')
+        else:
+            cursor.execute('''
+                SELECT prediction_id, creator_address, content_url, platform, metric_type,
+                       target_value, timeframe_hours, end_time, yes_pool, no_pool,
+                       status, outcome, initial_value, final_value, created_at
+                FROM predictions
+                WHERE status = ?
+                ORDER BY created_at DESC
+            ''', (status_filter,))
+        
+        rows = cursor.fetchall()
+        
+        for row in rows:
+            predictions.append({
+                "prediction_id": row[0],
+                "creator_address": row[1],
+                "content_url": row[2],
+                "platform": row[3],
+                "metric_type": row[4],
+                "target_value": row[5],
+                "timeframe_hours": row[6],
+                "end_time": row[7],
+                "yes_pool": row[8],
+                "no_pool": row[9],
+                "status": row[10],
+                "outcome": row[11],
+                "initial_value": row[12],
+                "final_value": row[13],
+                "created_at": row[14]
+            })
         except sqlite3.OperationalError as e:
             # Table doesn't exist yet or database is empty - return empty list
             logger.info(f"No predictions found (database may be empty): {e}")
@@ -4692,26 +4692,26 @@ def get_prediction(prediction_id):
         conn.close()
         
         prediction_data = {
-            "prediction_id": row[0],
-            "creator_address": row[1],
-            "content_url": row[2],
-            "platform": row[3],
-            "metric_type": row[4],
-            "target_value": row[5],
-            "timeframe_hours": row[6],
-            "end_time": row[7],
-            "yes_pool": yes_pool,
-            "no_pool": no_pool,
-            "status": status,
-            "outcome": row[11],
-            "initial_value": row[12],
-            "final_value": row[13],
-            "created_at": row[14],
-            "current_value": current_value,
-            "yes_odds": round(yes_odds, 2),
-            "no_odds": round(no_odds, 2),
-            "time_remaining_hours": round(time_remaining, 2)
-        }
+                "prediction_id": row[0],
+                "creator_address": row[1],
+                "content_url": row[2],
+                "platform": row[3],
+                "metric_type": row[4],
+                "target_value": row[5],
+                "timeframe_hours": row[6],
+                "end_time": row[7],
+                "yes_pool": yes_pool,
+                "no_pool": no_pool,
+                "status": status,
+                "outcome": row[11],
+                "initial_value": row[12],
+                "final_value": row[13],
+                "created_at": row[14],
+                "current_value": current_value,
+                "yes_odds": round(yes_odds, 2),
+                "no_odds": round(no_odds, 2),
+                "time_remaining_hours": round(time_remaining, 2)
+            }
         
         # Add all engagement metrics if available
         if all_metrics:
@@ -5289,39 +5289,82 @@ def shelby_upload():
             tmp_path = tmp_file.name
         
         try:
-            # Use Shelby CLI to upload
-            # Note: This requires Shelby CLI to be installed and configured
-            # shelby upload <file> <blob_name> -e <expiration> --assume-yes
-            expiration_arg = f"-e {expiration}" if expiration else "-e 'in 365 days'"
-            cmd = f"shelby upload {tmp_path} {blob_name} {expiration_arg} --assume-yes"
+            # Use Shelby CLI to upload and parse real output
+            # Calculate expiration
+            expiration_str = expiration if expiration else "in 365 days"
+            
+            # Use shelby CLI with proper output parsing
+            cmd = ['shelby', 'upload', tmp_path, blob_name, '-e', expiration_str, '--assume-yes']
             
             result = subprocess.run(
                 cmd,
-                shell=True,
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=120
             )
             
             if result.returncode != 0:
-                logger.error(f"Shelby upload failed: {result.stderr}")
-                # Fallback: return a placeholder URL (in production, you'd want proper error handling)
+                logger.error(f"Shelby CLI upload failed: {result.stderr}")
+                # Check if it's a configuration error
+                if "No configuration file found" in result.stderr or "shelby init" in result.stderr:
+                    return jsonify({
+                        "success": False,
+                        "error": "Shelby CLI not configured. Please run 'shelby init' to set up Shelby Protocol."
+                    }), 500
+                
                 return jsonify({
-                    "success": True,
-                    "blobUrl": f"shelby://{blob_name}",
-                    "blobId": blob_name,
-                    "note": "Shelby CLI not configured. Using placeholder URL."
-                })
+                    "success": False,
+                    "error": f"Shelby upload failed: {result.stderr[:200]}"
+                }), 500
             
-            # Parse output to get blob ID/URL
-            # Shelby CLI output format may vary, adjust parsing as needed
-            blob_id = blob_name
-            blob_url = f"shelby://{blob_name}"
+            # Parse CLI output to extract blob ID
+            # Shelby CLI typically outputs: "Uploaded: shelby://<blob_id>" or similar
+            output = result.stdout + result.stderr  # Check both
+            blob_id = None
+            blob_url = None
+            
+            # Try to extract blob ID from various output formats
+            import re
+            # Pattern 1: "shelby://<blob_id>"
+            match = re.search(r'shelby://([^\s\n]+)', output)
+            if match:
+                blob_id = match.group(1)
+                blob_url = f"shelby://{blob_id}"
+            else:
+                # Pattern 2: "Blob ID: <id>"
+                match = re.search(r'[Bb]lob\s+[Ii][Dd]:\s*([^\s\n]+)', output)
+                if match:
+                    blob_id = match.group(1)
+                    blob_url = f"shelby://{blob_id}"
+                else:
+                    # Pattern 3: Transaction hash or similar
+                    match = re.search(r'([a-f0-9]{64})', output)
+                    if match:
+                        blob_id = match.group(1)
+                        blob_url = f"shelby://{blob_id}"
+            
+            # If we couldn't parse, use the blob_name as fallback but log warning
+            if not blob_id:
+                logger.warning(f"Could not parse blob ID from Shelby output. Using blob_name. Output: {output[:500]}")
+                blob_id = blob_name
+                blob_url = f"shelby://{blob_id}"
+            
+            # Calculate expiration date for response
+            from datetime import datetime, timedelta
+            expiration_date = datetime.now() + timedelta(days=365)
+            if expiration:
+                try:
+                    expiration_date = datetime.fromisoformat(expiration.replace('Z', '+00:00'))
+                except:
+                    pass
             
             return jsonify({
                 "success": True,
                 "blobUrl": blob_url,
-                "blobId": blob_id
+                "blobId": blob_id,
+                "expirationDate": expiration_date.isoformat(),
+                "explorerUrl": f"https://explorer.shelby.xyz/shelbynet/blob/{blob_id}",
+                "rawOutput": output[:200]  # Include for debugging
             })
         finally:
             # Clean up temp file
