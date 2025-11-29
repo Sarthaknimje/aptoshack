@@ -3489,39 +3489,39 @@ def get_youtube_videos():
             else:
                 channel = channels_response['items'][0]
             
-        # Get tokenized videos from database
+            # Get tokenized videos from database
             init_db()
-        conn = sqlite3.connect('creatorvault.db')
-        cursor = conn.cursor()
+            conn = sqlite3.connect('creatorvault.db')
+            cursor = conn.cursor()
             
             tokenized_videos = {}
             try:
-        # Check both content_id and content_url for YouTube videos
-        cursor.execute('''
+                # Check both content_id and content_url for YouTube videos
+                cursor.execute('''
                     SELECT content_id, content_url, token_id, token_name, token_symbol 
-            FROM tokens 
-            WHERE platform = ? AND (content_id IS NOT NULL OR content_url IS NOT NULL)
-        ''', ('youtube',))
-        
-        for row in cursor.fetchall():
+                    FROM tokens 
+                    WHERE platform = ? AND (content_id IS NOT NULL OR content_url IS NOT NULL)
+                ''', ('youtube',))
+                
+                for row in cursor.fetchall():
                     content_id, content_url, token_id, token_name, token_symbol = row
-            # Extract video ID from content_id or content_url
-            video_id = None
-            if content_id:
-                video_id = content_id
-            elif content_url:
-                # Extract video ID from YouTube URL
-                import re
-                match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})', content_url)
-                if match:
-                    video_id = match.group(1)
-            
-            if video_id:
-                tokenized_videos[video_id] = {
+                    # Extract video ID from content_id or content_url
+                    video_id = None
+                    if content_id:
+                        video_id = content_id
+                    elif content_url:
+                        # Extract video ID from YouTube URL
+                        import re
+                        match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})', content_url)
+                        if match:
+                            video_id = match.group(1)
+                    
+                    if video_id:
+                        tokenized_videos[video_id] = {
                             'token_id': token_id,
-                    'token_name': token_name,
-                    'token_symbol': token_symbol
-                }
+                            'token_name': token_name,
+                            'token_symbol': token_symbol
+                        }
             except sqlite3.OperationalError as e:
                 # Table doesn't exist yet or database is empty - this is fine
                 logger.info(f"No tokenized videos found (database may be empty): {e}")
