@@ -2794,11 +2794,14 @@ def get_token_details(token_identifier):
                 pass
         
         # Get recent trades count - support both asa_id and token_id
+        # For Aptos tokens, trades table uses asa_id (TEXT) which should match token_id
         try:
             asa_id_int = int(token_identifier)
-            cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (asa_id_int,))
+            # Legacy: asa_id is integer
+            cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (str(asa_id_int),))
         except ValueError:
-            cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ? OR token_id = ?', (token_identifier, token_identifier))
+            # Aptos: token_id is string, trades.asa_id is TEXT and should match token_id
+            cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (token_identifier,))
         trade_count = cursor.fetchone()[0]
         
         conn.close()
