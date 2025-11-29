@@ -251,18 +251,20 @@ const MultiPlatformTokenization: React.FC = () => {
       // With 0 decimals, this means 1,000,000 base units
       const actualSupply = totalSupply >= 1000000 ? totalSupply : 1000000
       
+      // Use content ID as token_id (unique identifier for this token)
+      const tokenId = scrapedContent.id || scrapedContent.url // Fallback to URL if no ID
+      
       const { txId, assetId } = await createASAWithPetra({
         sender: address,
         petraWallet: petraWallet,
         assetName: tokenName,
         unitName: tokenSymbol.toUpperCase(),
         totalSupply: actualSupply,
+        tokenId: tokenId, // content_id (video_id, tweet_id, LinkedIn post ID, etc.)
         decimals: 0, // No decimals for simplicity
         url: scrapedContent.url,
-        manager: address,
-        reserve: address, // Creator holds all tokens initially
-        freeze: address,
-        clawback: address
+        iconUri: scrapedContent.thumbnailUrl || scrapedContent.url,
+        projectUri: scrapedContent.url
       })
 
       if (!assetId && assetId !== 0) {

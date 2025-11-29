@@ -269,7 +269,15 @@ const TradingMarketplace: React.FC = () => {
         if (result.success) {
           const token = result.tokens.find((t: any) => t.asa_id === asaId || t.token_id === asaId)
           if (token?.creator) {
-            const balance = await getTokenBalance(token.creator, address)
+            // Get tokenId (content_id) from token
+            const tokenId = token.content_id || token.token_id || String(token.asa_id || '')
+            if (!tokenId) {
+              console.warn('No tokenId found for token, skipping balance fetch')
+              setUserTokenBalance(0)
+              return
+            }
+            
+            const balance = await getTokenBalance(token.creator, tokenId, address)
           setUserTokenBalance(balance)
           return
         }
@@ -279,7 +287,15 @@ const TradingMarketplace: React.FC = () => {
       }
       
       // Fetch balance from contract
-      const balance = await getTokenBalance(tokenData.creator, address)
+      // Get tokenId (content_id) from tokenData
+      const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
+      if (!tokenId) {
+        console.warn('No tokenId found in tokenData, cannot fetch balance')
+        setUserTokenBalance(0)
+        return
+      }
+      
+      const balance = await getTokenBalance(tokenData.creator, tokenId, address)
       setUserTokenBalance(balance)
     } catch (error) {
       console.error('Error fetching token balance:', error)
@@ -493,14 +509,20 @@ const TradingMarketplace: React.FC = () => {
       // THIS CHECK IS CRITICAL - must block transaction if supply is insufficient
       if (tokenData?.creator) {
         try {
-          const currentSupply = await getCurrentSupply(tokenData.creator)
-          const totalSupply = await getTotalSupply(tokenData.creator)
+          // Get tokenId (content_id) from tokenData
+          const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
+          if (!tokenId) {
+            throw new Error('No tokenId found in tokenData')
+          }
+          
+          const currentSupply = await getCurrentSupply(tokenData.creator, tokenId)
+          const totalSupply = await getTotalSupply(tokenData.creator, tokenId)
           
           // Try to get APT reserve, but if it fails (e.g., 400 error), default to 0
           // This is fine for first buy when reserve is 0 anyway
           let aptReserve = 0
           try {
-            aptReserve = await getAptReserve(tokenData.creator)
+            aptReserve = await getAptReserve(tokenData.creator, tokenId)
           } catch (reserveError) {
             console.warn('⚠️ Could not fetch APT reserve (this is OK for first buy):', reserveError)
             // Default to 0 for first buy - this is expected when no tokens have been bought yet
@@ -842,10 +864,17 @@ const TradingMarketplace: React.FC = () => {
               return
             }
             
+            // Get tokenId (content_id) from tokenData
+            const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
+            if (!tokenId) {
+              throw new Error('No tokenId found in tokenData')
+            }
+            
             const buyResult = await buyTokensWithContract({
               buyer: address!,
               petraWallet: petraWallet,
               creatorAddress: tokenData.creator || address!,
+              tokenId: tokenId, // content_id
               aptPayment: safeAptPayment, // Use reduced APT payment for extra safety
               minTokensReceived: minTokensReceived // Minimum tokens expected
             })
