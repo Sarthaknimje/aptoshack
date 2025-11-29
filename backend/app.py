@@ -3602,9 +3602,10 @@ def sync_contract_trade():
 @cross_origin(supports_credentials=True)
 @handle_errors
 def scrape_content():
-    """Scrape content from Instagram, Twitter, or LinkedIn URLs"""
+    """Scrape content from Instagram, Twitter/X, LinkedIn, or YouTube URLs"""
     if WebScraper is None:
-        return jsonify({"success": False, "error": "Web scraper not available"}), 500
+        logger.error("WebScraper is None - beautifulsoup4 may not be installed. Run: pip install beautifulsoup4")
+        return jsonify({"success": False, "error": "Web scraper not available. Please install beautifulsoup4: pip install beautifulsoup4"}), 500
     
     try:
         data = request.get_json()
@@ -3631,12 +3632,15 @@ def scrape_content():
         
         if platform == 'instagram':
             result = scraper.scrape_instagram_reel(url)
-        elif platform == 'twitter':
+        elif platform == 'twitter' or platform == 'x':
             result = scraper.scrape_twitter_tweet(url)
         elif platform == 'linkedin':
             result = scraper.scrape_linkedin_post(url)
+        elif platform == 'youtube':
+            # YouTube uses API, not scraping
+            return jsonify({"success": False, "error": "YouTube content requires API authentication. Please use YouTube API."}), 400
         else:
-            return jsonify({"success": False, "error": f"Unsupported platform: {platform}"}), 400
+            return jsonify({"success": False, "error": f"Unsupported platform: {platform}. Supported: instagram, twitter/x, linkedin"}), 400
         
         if result:
             return jsonify({
@@ -3668,7 +3672,8 @@ def verify_ownership():
     
     try:
         if WebScraper is None:
-            return jsonify({"success": False, "error": "Web scraper not available"}), 500
+            logger.error("WebScraper is None - beautifulsoup4 may not be installed. Run: pip install beautifulsoup4")
+            return jsonify({"success": False, "error": "Web scraper not available. Please install beautifulsoup4: pip install beautifulsoup4"}), 500
         
         data = request.get_json()
         url = data.get('url', '').strip()
@@ -4319,7 +4324,7 @@ def create_prediction():
                 scraped = None
                 if platform == 'instagram':
                     scraped = scraper.scrape_instagram_reel(content_url)
-                elif platform == 'twitter':
+                elif platform == 'twitter' or platform == 'x':
                     scraped = scraper.scrape_twitter_tweet(content_url)
                 elif platform == 'linkedin':
                     scraped = scraper.scrape_linkedin_post(content_url)
@@ -4510,7 +4515,7 @@ def get_prediction(prediction_id):
                 
                 if platform == 'instagram':
                     scraped = scraper.scrape_instagram_reel(content_url)
-                elif platform == 'twitter':
+                elif platform == 'twitter' or platform == 'x':
                     scraped = scraper.scrape_twitter_tweet(content_url)
                 elif platform == 'linkedin':
                     scraped = scraper.scrape_linkedin_post(content_url)
@@ -4752,7 +4757,7 @@ def resolve_prediction(prediction_id):
                 scraped = None
                 if platform == 'instagram':
                     scraped = scraper.scrape_instagram_reel(content_url)
-                elif platform == 'twitter':
+                elif platform == 'twitter' or platform == 'x':
                     scraped = scraper.scrape_twitter_tweet(content_url)
                 elif platform == 'linkedin':
                     scraped = scraper.scrape_linkedin_post(content_url)
