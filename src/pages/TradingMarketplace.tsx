@@ -538,7 +538,8 @@ const TradingMarketplace: React.FC = () => {
             estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
           } else {
             // Subsequent buys: price = reserve / supply
-            const aptReserveOctas = await getAptReserve(tokenData.creator) * 100000000
+            // Use cached reserve value to avoid duplicate API call
+            const aptReserveOctas = Math.round(aptReserve * 100000000)
             if (aptReserveOctas === 0 || currentSupply === 0) {
               // Fallback to base price if reserve is 0
               estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
@@ -565,7 +566,8 @@ const TradingMarketplace: React.FC = () => {
             if (currentSupply === 0) {
               maxAptForAvailableTokens = (availableSupply * basePriceOctas) / 100000000
             } else {
-              const aptReserveOctas = await getAptReserve(tokenData.creator) * 100000000
+              // Use cached reserve value to avoid duplicate API call
+              const aptReserveOctas = Math.round(aptReserve * 100000000)
               const currentPriceOctas = aptReserveOctas > 0 && currentSupply > 0 
                 ? Math.floor(aptReserveOctas / currentSupply) 
                 : basePriceOctas
