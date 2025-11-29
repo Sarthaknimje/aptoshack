@@ -789,6 +789,92 @@ export async function getAptReserve(creatorAddress: string, tokenId: string): Pr
 }
 
 /**
+ * Place a bet on a prediction market (send APTOS payment)
+ * This sends APTOS to the prediction pool
+ */
+export async function placePredictionBet({
+  bettor,
+  petraWallet,
+  recipientAddress, // Address to receive the bet (prediction pool or contract)
+  amount, // APT amount to bet
+  predictionId, // For transaction memo
+  side // 'YES' or 'NO'
+}: {
+  bettor: string
+  petraWallet: any
+  recipientAddress: string
+  amount: number // APT amount
+  predictionId: string
+  side: 'YES' | 'NO'
+}): Promise<{ txId: string }> {
+  return executeWithQueue(async () => {
+    try {
+      if (!petraWallet) {
+        throw new Error('Petra wallet not connected')
+      }
+
+      // Convert APT to octas (1 APT = 100000000 octas)
+      const amountOctas = Math.round(amount * 100000000)
+      if (!Number.isSafeInteger(amountOctas) || amountOctas <= 0) {
+        throw new Error(`Invalid bet amount: ${amount} APT`)
+      }
+
+      // Build transaction to transfer APT
+      const transaction = {
+        type: "entry_function_payload",
+        function: "0x1::coin::transfer",
+        type_arguments: ["0x1::aptos_coin::AptosCoin"],
+        arguments: [
+          recipientAddress,
+          amountOctas.toString()
+        ]
+      }
+
+      // Sign and submit transaction
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
+      const txId = response.hash
+
+      console.log(`✅ Prediction bet placed: ${side} ${amount} APTOS on ${predictionId}, TX: ${txId}`)
+
+      // Wait for confirmation
+      await waitForTransaction(txId)
+
+      return { txId }
+    } catch (error: any) {
+      console.error('❌ Error placing prediction bet:', error)
+      
+      // Extract detailed error message
+      let errorMessage = 'Transaction failed'
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.info) {
+        errorMessage = error.info
+      } else if (error?.code) {
+        errorMessage = `Error code: ${error.code}`
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      // Check for specific error types
+      if (errorMessage.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) {
+        errorMessage = 'Insufficient APT balance for transaction fees. Please add more APT to your wallet.'
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
+        errorMessage = 'Transaction was rejected. Please approve the transaction in your wallet.'
+      } else if (error?.code === 4001 || errorMessage.includes('4001')) {
+        errorMessage = 'Transaction failed (Error 4001): Invalid transaction. Please try again.'
+      }
+      
+      const detailedError = new Error(errorMessage)
+      detailedError.name = error?.name || 'PetraApiError'
+      if (error?.code) {
+        (detailedError as any).code = error.code
+      }
+      throw detailedError
+    }
+  })
+}
+
+/**
  * Get metadata address for a token
  */
 export async function getMetadataAddress(creatorAddress: string): Promise<string> {

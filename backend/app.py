@@ -4646,11 +4646,12 @@ def trade_prediction(prediction_id):
         # Record trade
         import uuid
         trade_id = str(uuid.uuid4())
+        transaction_id = data.get('transaction_id', '')  # Get transaction ID from request
         cursor.execute('''
             INSERT INTO prediction_trades
-            (prediction_id, trader_address, side, amount, odds, potential_payout, status)
-            VALUES (?, ?, ?, ?, ?, ?, 'pending')
-        ''', (prediction_id, trader_address, side, amount, odds, potential_payout))
+            (prediction_id, trader_address, side, amount, odds, potential_payout, transaction_id, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
+        ''', (prediction_id, trader_address, side, amount, odds, potential_payout, transaction_id))
         
         conn.commit()
         conn.close()
@@ -4770,18 +4771,64 @@ def resolve_prediction(prediction_id):
         
         winning_trades = cursor.fetchall()
         
-        # Calculate payout per trade (proportional to pool)
+        # Calculate payout per trade (proportional to pool) and send automatically
+        payout_txids = []
         for trade_id, trader_address, amount, odds, potential_payout in winning_trades:
             # Actual payout based on pool size
             actual_payout = potential_payout if total_pool >= potential_payout else total_pool * (amount / (yes_pool if outcome == 'YES' else no_pool))
             
+            # Automatically send payout via Aptos
+            payout_txid = None
+            if APTOS_SDK_AVAILABLE and actual_payout > 0:
+                try:
+                    creator_account = get_aptos_account()
+                    if creator_account:
+                        # Convert APT to octas (1 APT = 100000000 octas)
+                        payout_octas = int(actual_payout * 100000000)
+                        
+                        # Build transfer transaction
+                        from aptos_sdk.transactions import EntryFunction, TransactionArgument, Serializer
+                        from aptos_sdk.client import RestClient
+                        
+                        # Initialize Aptos client
+                        aptos_rest_client = RestClient("https://fullnode.testnet.aptoslabs.com")
+                        
+                        # Create transfer entry function
+                        # Note: trader_address should be a valid Aptos address string
+                        entry_function = EntryFunction.natural(
+                            "0x1::coin",
+                            "transfer",
+                            ["0x1::aptos_coin::AptosCoin"],
+                            [
+                                TransactionArgument(trader_address, Serializer.address),
+                                TransactionArgument(payout_octas, Serializer.u64),
+                            ],
+                        )
+                        
+                        # Create and submit transaction
+                        transaction = aptos_rest_client.create_bcs_transaction(creator_account, entry_function)
+                        signed_transaction = aptos_rest_client.sign_transaction(creator_account, transaction)
+                        payout_txid = aptos_rest_client.submit_transaction(signed_transaction)
+                        
+                        # Wait for confirmation
+                        aptos_rest_client.wait_for_transaction(payout_txid)
+                        
+                        logger.info(f"✅ Automatic payout sent: {actual_payout} APTOS to {trader_address}, TX: {payout_txid}")
+                        payout_txids.append(payout_txid)
+                    else:
+                        logger.warning(f"⚠️ Cannot send automatic payout: Aptos account not available")
+                except Exception as payout_error:
+                    logger.error(f"❌ Error sending automatic payout to {trader_address}: {payout_error}")
+                    # Continue - mark as won but payout will need to be sent manually
+                    payout_txid = None
+            
             cursor.execute('''
                 UPDATE prediction_trades
-                SET status = 'won', payout_amount = ?
+                SET status = 'won', payout_amount = ?, claim_txid = ?, claimed = ?
                 WHERE id = ?
-            ''', (actual_payout, trade_id))
+            ''', (actual_payout, payout_txid, 1 if payout_txid else 0, trade_id))
             
-            logger.info(f"💰 Payout: {trader_address} wins {actual_payout} APTOS on {prediction_id}")
+            logger.info(f"💰 Payout: {trader_address} wins {actual_payout} APTOS on {prediction_id}" + (f" (TX: {payout_txid})" if payout_txid else " (manual claim required)"))
         
         # Mark losing trades
         cursor.execute('''
@@ -4800,7 +4847,9 @@ def resolve_prediction(prediction_id):
                 "outcome": outcome,
                 "final_value": final_value,
                 "target_value": target_value,
-                "winners": len(winning_trades)
+                "winners": len(winning_trades),
+                "automatic_payouts": len(payout_txids),
+                "payout_transactions": payout_txids
             }
         })
         

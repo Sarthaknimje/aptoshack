@@ -30,8 +30,7 @@ import {
   ArrowRight
 } from 'lucide-react'
 import { useWallet } from '../contexts/WalletContext'
-// Note: sendAlgoPaymentWithPetra removed - use contract-based functions instead
-// import { buyTokensWithContract } from '../services/petraWalletService'
+import { placePredictionBet } from '../services/petraWalletService'
 import PremiumBackground from '../components/PremiumBackground'
 import { YouTubeIcon, InstagramIcon, TwitterIcon, LinkedInIcon } from '../assets/icons'
 
@@ -369,24 +368,55 @@ const PredictionMarket: React.FC = () => {
     setTrading(true)
     setTradeError(null)
     try {
-      // First, create the trade record
-      const response = await fetch(`${BACKEND_URL}/api/predictions/${selectedPrediction.prediction_id}/trade`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          trader_address: address,
-          side: tradeSide,
-          amount: amount
+      // First, send APTOS payment via Petra wallet
+      let txId: string
+      try {
+        // Use creator address as recipient (pool address)
+        // Later, this can be replaced with a dedicated prediction market contract address
+        const recipientAddress = selectedPrediction.creator_address
+        
+        const betResult = await placePredictionBet({
+          bettor: address!,
+          petraWallet: petraWallet,
+          recipientAddress: recipientAddress,
+          amount: amount,
+          predictionId: selectedPrediction.prediction_id,
+          side: tradeSide
         })
-      })
+        
+        txId = betResult.txId
+      } catch (walletError: any) {
+        console.error('Wallet error:', walletError)
+        
+        // Handle network mismatch error specifically
+        if (walletError?.name === 'NetworkMismatchError' || walletError?.message?.includes('Network mismatch') || walletError?.message?.includes('different networks')) {
+          setTradeError('⚠️ Network Mismatch!\n\nPlease ensure your Petra Wallet is set to TESTNET.\n\nTo fix:\n1. Open Petra Wallet app\n2. Go to Settings\n3. Switch to Testnet\n4. Try again')
+        } else if (walletError?.message?.includes('rejected') || walletError?.message?.includes('User rejected')) {
+          setTradeError('Transaction was rejected. Please approve the transaction in your wallet.')
+        } else if (walletError?.message?.includes('INSUFFICIENT_BALANCE')) {
+          setTradeError('Insufficient APT balance. Please add more APT to your wallet.')
+        } else {
+          setTradeError(`Wallet error: ${walletError.message || 'Failed to send payment'}`)
+        }
+        setTrading(false)
+        return
+      }
 
-      const data = await response.json()
-      if (data.success) {
-        // Payment is handled by backend service
-        // For predictions, we use backend service which handles the payment logic
-        try {
-          const txId = data.transaction_id || 'prediction_pending'
+      // After successful payment, create the trade record in backend
+      try {
+        const response = await fetch(`${BACKEND_URL}/api/predictions/${selectedPrediction.prediction_id}/trade`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            trader_address: address,
+            side: tradeSide,
+            amount: amount,
+            transaction_id: txId // Include transaction ID from wallet
+          })
+        })
 
+        const data = await response.json()
+        if (data.success) {
           setTradeSuccess({
             show: true,
             message: `✅ Trade placed! ${tradeSide} ${amount} APTOS at ${data.trade.odds}x odds`,
@@ -398,18 +428,14 @@ const PredictionMarket: React.FC = () => {
             setTradeSuccess(null)
             fetchPredictions()
           }, 3000)
-        } catch (walletError: any) {
-          console.error('Wallet error:', walletError)
-          
-          // Handle network mismatch error specifically
-          if (walletError?.name === 'NetworkMismatchError' || walletError?.message?.includes('Network mismatch') || walletError?.message?.includes('different networks')) {
-            setTradeError('⚠️ Network Mismatch!\n\nPlease ensure your Petra Wallet is set to TESTNET.\n\nTo fix:\n1. Open Petra Wallet app\n2. Go to Settings\n3. Switch to Testnet\n4. Try again')
-          } else {
-            setTradeError(`Wallet error: ${walletError.message}`)
-          }
+        } else {
+          // Payment was sent but backend failed - this is a problem
+          setTradeError(`Payment sent but failed to record trade: ${data.error || 'Unknown error'}. Transaction ID: ${txId}`)
         }
-      } else {
-        setTradeError(data.error || 'Failed to place trade')
+      } catch (backendError: any) {
+        // Payment was sent but backend call failed
+        console.error('Backend error after payment:', backendError)
+        setTradeError(`Payment sent (TX: ${txId}) but failed to record trade. Please contact support.`)
       }
     } catch (error: any) {
       setTradeError(`Trade failed: ${error.message}`)
@@ -1267,6 +1293,5 @@ const PredictionMarket: React.FC = () => {
   )
 }
 
-// Prediction Market Component
 export default PredictionMarket
 
