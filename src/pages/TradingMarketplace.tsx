@@ -912,11 +912,33 @@ const TradingMarketplace: React.FC = () => {
     } catch (error: any) {
       console.error('Trade error:', error)
       
-      // Handle network mismatch error specifically
-      if (error?.name === 'NetworkMismatchError' || error?.message?.includes('Network mismatch') || error?.message?.includes('different networks')) {
+      // Extract detailed error message
+      let errorMessage = error?.message || 'Failed to execute trade. Please try again.'
+      
+      // Handle specific error types
+      if (error?.name === 'NetworkMismatchError' || errorMessage.includes('Network mismatch') || errorMessage.includes('different networks')) {
         setTradeError('⚠️ Network Mismatch!\n\nPlease ensure your Petra Wallet is set to TESTNET.\n\nTo fix:\n1. Open Petra Wallet app\n2. Go to Settings\n3. Switch to Testnet\n4. Try again')
+      } else if (errorMessage.includes('E_INSUFFICIENT_BALANCE') || errorMessage.includes('0x10002') || errorMessage.includes('Insufficient token supply')) {
+        setTradeError(
+          `Transaction failed: Insufficient token supply.\n\n` +
+          `The transaction would exceed the total supply limit. ` +
+          `Please reduce the amount and try again.`
+        )
+      } else if (errorMessage.includes('E_INSUFFICIENT_PAYMENT') || errorMessage.includes('0x10003') || errorMessage.includes('Slippage')) {
+        setTradeError(
+          `Transaction failed: Slippage protection triggered.\n\n` +
+          `You would receive fewer tokens than expected. ` +
+          `Please try again with a smaller amount or wait for the price to stabilize.`
+        )
+      } else if (errorMessage.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) {
+        setTradeError(
+          `Insufficient APT balance for transaction fees.\n\n` +
+          `Please add more APT to your wallet and try again.`
+        )
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
+        setTradeError('Transaction was rejected. Please approve the transaction in your wallet.')
       } else {
-        setTradeError(error.message || 'Failed to execute trade. Please try again.')
+        setTradeError(`Failed to execute trade: ${errorMessage}`)
       }
     } finally {
       setIsProcessing(false)
