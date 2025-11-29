@@ -3725,13 +3725,13 @@ def get_youtube_video_info():
             # Use API key for public video data (much higher quota)
             youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
             
-        video_response = youtube.videos().list(
-            part='snippet,statistics,contentDetails',
+            video_response = youtube.videos().list(
+                part='snippet,statistics,contentDetails',
                 id=video_id,
                 key=YOUTUBE_API_KEY
-        ).execute()
-        
-        if not video_response.get('items'):
+            ).execute()
+            
+            if not video_response.get('items'):
                 # Try to return cached data even if stale
                 if cache_row:
                     cached_video = json.loads(cached_video_json)
@@ -3742,14 +3742,12 @@ def get_youtube_video_info():
                     cursor2 = conn2.cursor()
                     cursor2.execute('SELECT token_id, token_name, token_symbol FROM tokens WHERE (content_id = ? OR content_url LIKE ?) AND platform = ?', 
                                   (video_id, f'%{video_id}%', 'youtube'))
+                    existing_token = cursor2.fetchone()
                     # Fallback to asa_id if token_id doesn't exist (old schema)
-                    if not cursor2.fetchone():
+                    if not existing_token:
                         cursor2.execute('SELECT asa_id, token_name, token_symbol FROM tokens WHERE (content_id = ? OR content_url LIKE ?) AND platform = ?', 
                                       (video_id, f'%{video_id}%', 'youtube'))
                         existing_token = cursor2.fetchone()
-                    else:
-                        existing_token = cursor2.fetchone()
-                    existing_token = cursor2.fetchone()
                     conn2.close()
                     
                     cached_video['isOwned'] = is_owned
@@ -3768,54 +3766,53 @@ def get_youtube_video_info():
                         "content": cached_video,
                         "verified": is_owned
                     })
-            return jsonify({"success": False, "error": "Video not found or not accessible"}), 404
-        
-        video = video_response['items'][0]
-        video_channel_id = video['snippet']['channelId']
-        
-        # CRITICAL: Verify the video belongs to the connected channel
+                return jsonify({"success": False, "error": "Video not found or not accessible"}), 404
+            
+            video = video_response['items'][0]
+            video_channel_id = video['snippet']['channelId']
+            
+            # CRITICAL: Verify the video belongs to the connected channel
             is_owned = (video_channel_id == connected_channel_id) if connected_channel_id else False
-        
+            
             if not is_owned and connected_channel_id:
-            logger.warning(f"⚠️ User tried to tokenize video from another channel. Video channel: {video_channel_id}, Connected channel: {connected_channel_id}")
-        
-        # Check if already tokenized
-        conn = sqlite3.connect('creatorvault.db')
-        cursor = conn.cursor()
+                logger.warning(f"⚠️ User tried to tokenize video from another channel. Video channel: {video_channel_id}, Connected channel: {connected_channel_id}")
+            
+            # Check if already tokenized
+            conn = sqlite3.connect('creatorvault.db')
+            cursor = conn.cursor()
             # Try token_id first, fallback to asa_id for old schema
             try:
                 cursor.execute('SELECT token_id, token_name, token_symbol FROM tokens WHERE (content_id = ? OR content_url LIKE ?) AND platform = ?', 
                               (video_id, f'%{video_id}%', 'youtube'))
-        existing_token = cursor.fetchone()
+                existing_token = cursor.fetchone()
             except sqlite3.OperationalError:
                 # Old schema uses asa_id
                 cursor.execute('SELECT asa_id, token_name, token_symbol FROM tokens WHERE (content_id = ? OR content_url LIKE ?) AND platform = ?', 
                               (video_id, f'%{video_id}%', 'youtube'))
                 existing_token = cursor.fetchone()
-            existing_token = cursor.fetchone()
-        
-        video_data = {
-            'id': video_id,
-            'title': video['snippet']['title'],
-            'description': video['snippet']['description'],
-            'thumbnail': video['snippet']['thumbnails']['high']['url'],
-            'publishedAt': video['snippet']['publishedAt'],
-            'viewCount': int(video['statistics'].get('viewCount', 0)),
-            'likeCount': int(video['statistics'].get('likeCount', 0)),
-            'commentCount': int(video['statistics'].get('commentCount', 0)),
-            'channelId': video_channel_id,
-            'channelTitle': video['snippet']['channelTitle'],
-            'url': f"https://www.youtube.com/watch?v={video_id}",
-            'platform': 'youtube',
-            'isTokenized': existing_token is not None,
-            'tokenInfo': {
+            
+            video_data = {
+                'id': video_id,
+                'title': video['snippet']['title'],
+                'description': video['snippet']['description'],
+                'thumbnail': video['snippet']['thumbnails']['high']['url'],
+                'publishedAt': video['snippet']['publishedAt'],
+                'viewCount': int(video['statistics'].get('viewCount', 0)),
+                'likeCount': int(video['statistics'].get('likeCount', 0)),
+                'commentCount': int(video['statistics'].get('commentCount', 0)),
+                'channelId': video_channel_id,
+                'channelTitle': video['snippet']['channelTitle'],
+                'url': f"https://www.youtube.com/watch?v={video_id}",
+                'platform': 'youtube',
+                'isTokenized': existing_token is not None,
+                'tokenInfo': {
                     'token_id': existing_token[0],
-                'token_name': existing_token[1],
-                'token_symbol': existing_token[2]
-            } if existing_token else None,
-            # NEW: Add ownership verification
-            'isOwned': is_owned,
-            'connectedChannelId': connected_channel_id,
+                    'token_name': existing_token[1],
+                    'token_symbol': existing_token[2]
+                } if existing_token else None,
+                # NEW: Add ownership verification
+                'isOwned': is_owned,
+                'connectedChannelId': connected_channel_id,
                 'ownershipMessage': 'You own this video and can tokenize it.' if is_owned else 'This video belongs to another channel. You can only tokenize your own content.',
                 'cached': False
             }
@@ -3830,12 +3827,12 @@ def get_youtube_video_info():
             conn.close()
             
             logger.info(f"✅ Fetched and cached YouTube video info for {video_id}")
-        
-        return jsonify({
-            "success": True,
-            "content": video_data,
-            "verified": is_owned
-        })
+            
+            return jsonify({
+                "success": True,
+                "content": video_data,
+                "verified": is_owned
+            })
             
         except HttpError as http_err:
             # Handle quota exceeded - return cached data if available
