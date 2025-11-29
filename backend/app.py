@@ -1851,13 +1851,13 @@ def get_trades(token_identifier):
             ORDER BY created_at DESC
             LIMIT ?
                     ''', (asa_id_from_token, limit))
-                else:
-                    # No token found, return empty
-                    trades = []
-                    conn.close()
-                    return jsonify({
-                        "success": True,
-                        "trades": [],
+            else:
+                # No token found, return empty
+                trades = []
+                conn.close()
+                return jsonify({
+                    "success": True,
+                    "trades": [],
                         "count": 0
                     })
             else:
