@@ -59,8 +59,8 @@ const YouTubeVideos: React.FC = () => {
         // Check if it's a quota error
         if (data.quotaExceeded || data.error?.includes('quota')) {
           setError('YouTube API quota exceeded. Using cached data. Please try again later.')
-        } else {
-          setError(data.error || 'Failed to fetch videos')
+      } else {
+        setError(data.error || 'Failed to fetch videos')
         }
       }
     } catch (err: any) {

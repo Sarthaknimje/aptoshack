@@ -18,6 +18,7 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import google.auth.exceptions
 from dotenv import load_dotenv
+import requests
 
 # Configure logging first (before any logger usage)
 logging.basicConfig(
@@ -3120,6 +3121,109 @@ def bonding_curve_sell():
         logger.error(f"Error in bonding curve sell: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+def fetch_aptos_contract_state(creator_address, token_id):
+    """
+    Fetch current supply and APT reserve from Aptos contract
+    Returns (current_supply, apt_reserve) or (None, None) if fetch fails
+    """
+    APTOS_NODE_URL = 'https://fullnode.testnet.aptoslabs.com/v1'
+    MODULE_ADDRESS = '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6'
+    OLD_MODULE_ADDRESS = '0xfbc34c56aab6dcbe5aa1c9c47807e8fc80f0e674341b11a5b4b6a742764cd0e2'
+    
+    # Convert token_id string to hex bytes
+    token_id_bytes = token_id.encode('utf-8')
+    token_id_hex = '0x' + ''.join([f'{b:02x}' for b in token_id_bytes])
+    
+    try:
+        # Try new contract first
+        response = requests.post(
+            f'{APTOS_NODE_URL}/view',
+            json={
+                'function': f'{MODULE_ADDRESS}::creator_token::get_current_supply',
+                'type_arguments': [],
+                'arguments': [creator_address, token_id_hex]
+            },
+            headers={'Content-Type': 'application/json'},
+            timeout=5
+        )
+        
+        if response.ok:
+            data = response.json()
+            current_supply = int(data[0] or '0', 10)
+            
+            # Fetch APT reserve
+            reserve_response = requests.post(
+                f'{APTOS_NODE_URL}/view',
+                json={
+                    'function': f'{MODULE_ADDRESS}::creator_token::get_apt_reserve',
+                    'type_arguments': [],
+                    'arguments': [creator_address, token_id_hex]
+                },
+                headers={'Content-Type': 'application/json'},
+                timeout=5
+            )
+            
+            if reserve_response.ok:
+                reserve_data = reserve_response.json()
+                # Convert octas to APT (1 APT = 100000000 octas)
+                apt_reserve_octas = int(reserve_data[0] or '0', 10)
+                apt_reserve = apt_reserve_octas / 100000000
+                
+                logger.info(f"✅ Fetched contract state: supply={current_supply}, reserve={apt_reserve} APT")
+                return current_supply, apt_reserve
+            else:
+                # If reserve fetch fails, try old contract
+                logger.warning(f"⚠️ Failed to fetch reserve from new contract, trying old contract...")
+        elif response.status_code == 400:
+            error_text = response.text
+            if 'Failed to borrow global resource' in error_text:
+                logger.warning(f"⚠️ Token not found in new contract, trying old contract...")
+            else:
+                raise Exception(f"Failed to fetch supply: {response.status_code}")
+    except Exception as e:
+        logger.warning(f"⚠️ Error fetching from new contract: {e}, trying old contract...")
+    
+    # Try old contract as fallback
+    try:
+        response = requests.post(
+            f'{APTOS_NODE_URL}/view',
+            json={
+                'function': f'{OLD_MODULE_ADDRESS}::creator_token::get_current_supply',
+                'type_arguments': [],
+                'arguments': [creator_address, token_id_hex]
+            },
+            headers={'Content-Type': 'application/json'},
+            timeout=5
+        )
+        
+        if response.ok:
+            data = response.json()
+            current_supply = int(data[0] or '0', 10)
+            
+            # Fetch APT reserve from old contract
+            reserve_response = requests.post(
+                f'{APTOS_NODE_URL}/view',
+                json={
+                    'function': f'{OLD_MODULE_ADDRESS}::creator_token::get_apt_reserve',
+                    'type_arguments': [],
+                    'arguments': [creator_address, token_id_hex]
+                },
+                headers={'Content-Type': 'application/json'},
+                timeout=5
+            )
+            
+            if reserve_response.ok:
+                reserve_data = reserve_response.json()
+                apt_reserve_octas = int(reserve_data[0] or '0', 10)
+                apt_reserve = apt_reserve_octas / 100000000
+                
+                logger.info(f"✅ Fetched contract state from old contract: supply={current_supply}, reserve={apt_reserve} APT")
+                return current_supply, apt_reserve
+    except Exception as e:
+        logger.error(f"❌ Error fetching from old contract: {e}")
+    
+    return None, None
+
 @app.route('/api/bonding-curve/estimate', methods=['POST'])
 @handle_errors
 def bonding_curve_estimate():
@@ -3197,9 +3301,77 @@ def bonding_curve_estimate():
         state = BondingCurveState.from_dict(json.loads(bonding_curve_state_json))
         
         # Get current supply and reserve from contract if available
-        # For now, use database state, but ideally fetch from contract
+        # For Aptos tokens, try to fetch from contract, otherwise use database state
         current_supply = state.token_supply
         current_reserve = state.algo_reserve
+        
+        # For Aptos tokens (token_id is string), try to fetch actual supply from contract
+        # This ensures we have the latest state even if database isn't synced
+        try:
+            asa_id_int = int(token_identifier)
+            # Legacy Algorand token - use database state
+            # But also check trades if supply is 0
+            if current_supply == 0:
+                cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (str(asa_id_int),))
+                trade_count = cursor.fetchone()[0]
+                if trade_count > 0:
+                    # Estimate supply from trades
+                    cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'buy'))
+                    buy_sum = cursor.fetchone()[0] or 0
+                    cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'sell'))
+                    sell_sum = cursor.fetchone()[0] or 0
+                    estimated_supply = buy_sum - sell_sum
+                    if estimated_supply > 0:
+                        current_supply = estimated_supply
+                        cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'buy'))
+                        buy_value = cursor.fetchone()[0] or 0
+                        cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'sell'))
+                        sell_value = cursor.fetchone()[0] or 0
+                        estimated_reserve = buy_value - sell_value
+                        if estimated_reserve > 0:
+                            current_reserve = estimated_reserve
+        except ValueError:
+            # Aptos token - fetch actual supply and reserve from contract
+            # Get creator address from token data (token_identifier is a string for Aptos tokens)
+            cursor.execute('SELECT creator FROM tokens WHERE token_id = ?', (token_identifier,))
+            
+            creator_row = cursor.fetchone()
+            if creator_row and creator_row[0]:
+                creator_address = creator_row[0]
+                # Fetch actual contract state
+                contract_supply, contract_reserve = fetch_aptos_contract_state(creator_address, token_identifier)
+                
+                if contract_supply is not None and contract_reserve is not None:
+                    # Use contract state (most accurate)
+                    current_supply = contract_supply
+                    current_reserve = contract_reserve
+                    logger.info(f"✅ Using contract state: supply={current_supply}, reserve={current_reserve} APT for token {token_identifier}")
+                else:
+                    # Fallback: try to estimate from trades if contract fetch failed
+                    logger.warning(f"⚠️ Failed to fetch contract state, falling back to database/trades for token {token_identifier}")
+                    cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (token_identifier,))
+                    trade_count = cursor.fetchone()[0]
+                    if trade_count > 0 and current_supply == 0:
+                        # There are trades but supply is 0 - this means database is out of sync
+                        # Estimate supply based on trades (rough approximation)
+                        cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (token_identifier, 'buy'))
+                        buy_sum = cursor.fetchone()[0] or 0
+                        cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (token_identifier, 'sell'))
+                        sell_sum = cursor.fetchone()[0] or 0
+                        estimated_supply = buy_sum - sell_sum
+                        if estimated_supply > 0:
+                            current_supply = estimated_supply
+                            # Estimate reserve based on trades
+                            cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (token_identifier, 'buy'))
+                            buy_value = cursor.fetchone()[0] or 0
+                            cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (token_identifier, 'sell'))
+                            sell_value = cursor.fetchone()[0] or 0
+                            estimated_reserve = buy_value - sell_value
+                            if estimated_reserve > 0:
+                                current_reserve = estimated_reserve
+                            logger.info(f"📊 Estimated supply from trades: {current_supply}, reserve: {current_reserve} for token {token_identifier}")
+            else:
+                logger.warning(f"⚠️ Creator address not found for token {token_identifier}, using database state")
         
         if trade_type == 'buy':
             # Handle $0 initial price: use contract's bonding curve formula
@@ -3224,6 +3396,7 @@ def bonding_curve_estimate():
                 new_reserve = current_reserve + algo_cost
                 new_price = new_reserve / new_supply if new_supply > 0 else base_price_per_token
             
+            conn.close()
             return jsonify({
                 "success": True,
                 "algo_cost": algo_cost,
@@ -3232,7 +3405,53 @@ def bonding_curve_estimate():
             })
         else:
             # Sell: calculate based on current price
-            if current_supply == 0 or current_reserve == 0:
+            # Check if we have any trades - if yes, there should be tokens in circulation
+            # Even if database state shows 0, if trades exist, estimate from them
+            try:
+                asa_id_int = int(token_identifier)
+                cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (str(asa_id_int),))
+            except ValueError:
+                cursor.execute('SELECT COUNT(*) FROM trades WHERE asa_id = ?', (token_identifier,))
+            trade_count = cursor.fetchone()[0]
+            
+            # If supply is 0 but we have trades, try to estimate from trades one more time
+            if current_supply <= 0 and trade_count > 0:
+                logger.warning(f"⚠️ Supply is 0 but {trade_count} trades exist. Re-estimating from trades...")
+                try:
+                    asa_id_int = int(token_identifier)
+                    cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'buy'))
+                    buy_sum = cursor.fetchone()[0] or 0
+                    cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'sell'))
+                    sell_sum = cursor.fetchone()[0] or 0
+                except ValueError:
+                    cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (token_identifier, 'buy'))
+                    buy_sum = cursor.fetchone()[0] or 0
+                    cursor.execute('SELECT SUM(amount) FROM trades WHERE asa_id = ? AND trade_type = ?', (token_identifier, 'sell'))
+                    sell_sum = cursor.fetchone()[0] or 0
+                
+                estimated_supply = buy_sum - sell_sum
+                if estimated_supply > 0:
+                    current_supply = estimated_supply
+                    try:
+                        asa_id_int = int(token_identifier)
+                        cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'buy'))
+                        buy_value = cursor.fetchone()[0] or 0
+                        cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (str(asa_id_int), 'sell'))
+                        sell_value = cursor.fetchone()[0] or 0
+                    except ValueError:
+                        cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (token_identifier, 'buy'))
+                        buy_value = cursor.fetchone()[0] or 0
+                        cursor.execute('SELECT SUM(total_value) FROM trades WHERE asa_id = ? AND trade_type = ?', (token_identifier, 'sell'))
+                        sell_value = cursor.fetchone()[0] or 0
+                    estimated_reserve = buy_value - sell_value
+                    if estimated_reserve > 0:
+                        current_reserve = estimated_reserve
+                    logger.info(f"✅ Re-estimated: Supply={current_supply}, Reserve={current_reserve}")
+            
+            # Final check: if still no supply, return error
+            if current_supply <= 0 or current_reserve <= 0:
+                logger.warning(f"⚠️ Sell estimate failed: Supply={current_supply}, Reserve={current_reserve}, Trades={trade_count}")
+                conn.close()
                 return jsonify({
                     "success": False,
                     "error": "No tokens in circulation to sell"
@@ -3244,6 +3463,7 @@ def bonding_curve_estimate():
             new_reserve = current_reserve - algo_received
             new_price = new_reserve / new_supply if new_supply > 0 else 0
             
+            conn.close()
             return jsonify({
                 "success": True,
                 "algo_received": algo_received,
@@ -3262,6 +3482,121 @@ def bonding_curve_estimate():
             conn.close()
         except:
             pass
+
+@app.route('/api/sync-contract-trade', methods=['POST'])
+@handle_errors
+def sync_contract_trade():
+    """Sync a contract trade to the database
+    Called after successful buy/sell via contract to update database state
+    """
+    try:
+        data = request.get_json()
+        token_identifier = data.get('token_id') or data.get('asa_id')
+        trade_type = data.get('trade_type')  # 'buy' or 'sell'
+        transaction_id = data.get('transaction_id')
+        trader_address = data.get('trader_address')
+        token_amount = float(data.get('token_amount', 0))
+        apt_amount = float(data.get('apt_amount', 0))  # APT paid/received
+        current_supply = data.get('current_supply')  # From contract
+        apt_reserve = data.get('apt_reserve')  # From contract
+        
+        if not token_identifier or not trade_type or not transaction_id or not trader_address:
+            return jsonify({"success": False, "error": "Missing required fields"}), 400
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Find token by token_id or asa_id
+        try:
+            asa_id_int = int(token_identifier)
+            cursor.execute('SELECT asa_id, token_id, bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE asa_id = ?', (asa_id_int,))
+        except ValueError:
+            cursor.execute('SELECT asa_id, token_id, bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE token_id = ?', (token_identifier,))
+        
+        row = cursor.fetchone()
+        if not row:
+            conn.close()
+            return jsonify({"success": False, "error": "Token not found"}), 404
+        
+        asa_id, token_id_db, bonding_curve_config_json, bonding_curve_state_json, current_price, total_supply = row
+        
+        # Use contract state if provided, otherwise estimate from trade
+        if current_supply is not None and apt_reserve is not None:
+            # Update bonding curve state with contract values
+            new_state = BondingCurveState(
+                token_supply=int(current_supply),
+                algo_reserve=float(apt_reserve)
+            )
+            new_price = float(apt_reserve) / int(current_supply) if int(current_supply) > 0 else 0.00001
+        else:
+            # Estimate from existing state + trade
+            if bonding_curve_config_json and bonding_curve_state_json:
+                curve = BondingCurve.from_dict(json.loads(bonding_curve_config_json))
+                state = BondingCurveState.from_dict(json.loads(bonding_curve_state_json))
+                
+                if trade_type == 'buy':
+                    # Buy: supply increases, reserve increases
+                    new_state = BondingCurveState(
+                        token_supply=state.token_supply + int(token_amount),
+                        algo_reserve=state.algo_reserve + apt_amount
+                    )
+                else:
+                    # Sell: supply decreases, reserve decreases
+                    new_state = BondingCurveState(
+                        token_supply=max(0, state.token_supply - int(token_amount)),
+                        algo_reserve=max(0, state.algo_reserve - apt_amount)
+                    )
+                new_price = new_state.algo_reserve / new_state.token_supply if new_state.token_supply > 0 else 0.00001
+            else:
+                # Initialize if missing
+                new_state = BondingCurveState(
+                    token_supply=int(token_amount) if trade_type == 'buy' else 0,
+                    algo_reserve=apt_amount if trade_type == 'buy' else 0
+                )
+                new_price = 0.00001
+        
+        # Update token state
+        try:
+            asa_id_int = int(token_identifier)
+            cursor.execute('''
+                UPDATE tokens 
+                SET bonding_curve_state = ?, current_price = ?, market_cap = ?
+                WHERE asa_id = ?
+            ''', (json.dumps(new_state.to_dict()), new_price, new_state.token_supply * new_price, asa_id_int))
+        except ValueError:
+            cursor.execute('''
+                UPDATE tokens 
+                SET bonding_curve_state = ?, current_price = ?, market_cap = ?
+                WHERE token_id = ?
+            ''', (json.dumps(new_state.to_dict()), new_price, new_state.token_supply * new_price, token_identifier))
+        
+        # Record trade in database
+        # Use asa_id from database, or token_identifier as string for Aptos tokens
+        trade_asa_id = asa_id if asa_id else token_identifier
+        
+        cursor.execute('''
+            INSERT INTO trades (asa_id, trader_address, trade_type, amount, price, transaction_id, total_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (str(trade_asa_id), trader_address, trade_type, token_amount, new_price, transaction_id, apt_amount))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Synced contract trade: {trade_type} {token_amount} tokens, tx={transaction_id}")
+        
+        return jsonify({
+            "success": True,
+            "current_supply": new_state.token_supply,
+            "apt_reserve": new_state.algo_reserve,
+            "new_price": new_price
+        })
+    except Exception as e:
+        logger.error(f"Error syncing contract trade: {e}")
+        try:
+            conn.close()
+        except:
+            pass
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/scrape-content', methods=['POST', 'OPTIONS'])
 @cross_origin(supports_credentials=True)

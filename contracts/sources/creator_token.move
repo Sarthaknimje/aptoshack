@@ -34,6 +34,7 @@ module creatorvault::creator_token {
     /// Maps token_id (content_id) -> TokenData
     struct CreatorTokens has key {
         tokens: Table<vector<u8>, TokenData>,  // token_id -> TokenData
+        apt_reserve: coin::Coin<AptosCoin>,  // Shared APT reserve pool for all tokens
     }
 
     /// Initialize the creator's token storage (one-time setup)
@@ -42,6 +43,7 @@ module creatorvault::creator_token {
         if (!exists<CreatorTokens>(creator_addr)) {
             move_to(creator, CreatorTokens {
                 tokens: table::new(),
+                apt_reserve: coin::zero<AptosCoin>(),
             });
         };
     }
@@ -190,9 +192,9 @@ module creatorvault::creator_token {
         assert!(new_supply <= token_data.total_supply, error::invalid_argument(E_INSUFFICIENT_BALANCE));
         assert!(tokens_received >= min_tokens_received, error::invalid_argument(E_INSUFFICIENT_PAYMENT));
         
-        // Transfer APT from buyer to creator (this becomes the reserve)
+        // Transfer APT from buyer to shared reserve pool
         let payment = coin::withdraw<AptosCoin>(buyer, apt_payment);
-        coin::deposit(creator, payment);
+        coin::merge(&mut creator_tokens.apt_reserve, payment);
         
         // Mint tokens to buyer
         let fa = fungible_asset::mint(
@@ -201,22 +203,22 @@ module creatorvault::creator_token {
         );
         primary_fungible_store::deposit(buyer_addr, fa);
         
-        // Update state
+        // Update state (per-token reserve tracking for accounting)
         token_data.current_supply = new_supply;
         token_data.apt_reserve = new_reserve;
     }
 
     /// Sell tokens for APT (bonding curve pricing)
+    /// Updated to allow seller-initiated sells (only requires seller signer, not creator signer)
     entry fun sell_tokens(
         seller: &signer,
-        creator_signer: &signer,
+        creator: address,
         token_id: vector<u8>,
         token_amount: u64,
         min_apt_received: u64,
     ) acquires CreatorTokens {
         let seller_addr = signer::address_of(seller);
-        let creator_addr = signer::address_of(creator_signer);
-        let creator_tokens = borrow_global_mut<CreatorTokens>(creator_addr);
+        let creator_tokens = borrow_global_mut<CreatorTokens>(creator);
         assert!(table::contains(&creator_tokens.tokens, token_id), error::not_found(E_TOKEN_NOT_FOUND));
         let token_data = table::borrow_mut(&mut creator_tokens.tokens, token_id);
         
@@ -242,17 +244,21 @@ module creatorvault::creator_token {
         assert!(apt_received >= min_apt_received, error::invalid_argument(E_INSUFFICIENT_PAYMENT));
         assert!(apt_received <= old_reserve, error::invalid_argument(E_INSUFFICIENT_BALANCE));
         
+        // Validate shared pool has enough APT
+        let pool_balance = coin::value<AptosCoin>(&creator_tokens.apt_reserve);
+        assert!(pool_balance >= apt_received, error::invalid_argument(E_INSUFFICIENT_BALANCE));
+        
         // Withdraw tokens from seller
         let fa = primary_fungible_store::withdraw(seller, token_data.metadata, token_amount);
         
         // Burn the tokens
         fungible_asset::burn(&token_data.burn_ref, fa);
         
-        // Transfer APT from creator to seller
-        let payment = coin::withdraw<AptosCoin>(creator_signer, apt_received);
+        // Transfer APT from shared reserve pool to seller
+        let payment = coin::extract(&mut creator_tokens.apt_reserve, apt_received);
         coin::deposit(seller_addr, payment);
         
-        // Update state
+        // Update state (per-token reserve tracking for accounting)
         token_data.current_supply = new_supply;
         token_data.apt_reserve = new_reserve;
     }
@@ -362,40 +368,5 @@ module creatorvault::creator_token {
         };
         let creator_tokens = borrow_global<CreatorTokens>(creator);
         table::contains(&creator_tokens.tokens, token_id)
-    }
-}
-
-    /// Transfer tokens between accounts
-    entry fun transfer(
-        sender: &signer,
-        creator: address,
-        recipient: address,
-        amount: u64,
-    ) acquires TokenData {
-        let metadata = borrow_global<TokenData>(creator).metadata;
-        primary_fungible_store::transfer(sender, metadata, recipient, amount);
-    }
-
-    /// Burn tokens (only creator can call)
-    entry fun burn(
-        creator: &signer,
-        amount: u64,
-    ) acquires TokenData {
-        let creator_addr = signer::address_of(creator);
-        let token_data = borrow_global_mut<TokenData>(creator_addr);
-        
-        // Only creator can burn
-        assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
-        
-        // Check balance
-        let balance = primary_fungible_store::balance(creator_addr, token_data.metadata);
-        assert!(balance >= amount, error::invalid_argument(E_INSUFFICIENT_BALANCE));
-        
-        // Withdraw and burn
-        let fa = primary_fungible_store::withdraw(creator, token_data.metadata, amount);
-        fungible_asset::burn(&token_data.burn_ref, fa);
-        
-        // Update current supply
-        token_data.current_supply = token_data.current_supply - amount;
     }
 }

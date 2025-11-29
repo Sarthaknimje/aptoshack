@@ -120,29 +120,29 @@ export const usePetraWallet = () => {
         const address = response.address
         // Fetch real balance
         const balance = await fetchBalanceForAddress(address)
-        setWalletState({
-          isConnected: true,
-          address,
+            setWalletState({
+              isConnected: true,
+              address,
           balance,
-          isLoading: false,
-          error: null,
-        })
-      }
+              isLoading: false,
+              error: null,
+            })
+          }
     } catch (error) {
       // Handle user rejection
       if ((error as any)?.code === 4001) {
-        setWalletState(prev => ({
-          ...prev,
-          isLoading: false,
-          error: null,
-        }))
+            setWalletState(prev => ({
+              ...prev,
+              isLoading: false,
+              error: null,
+            }))
       } else {
-        setWalletState(prev => ({
-          ...prev,
-          isLoading: false,
-          error: error instanceof Error ? error.message : 'Failed to connect wallet',
-        }))
-      }
+      setWalletState(prev => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Failed to connect wallet',
+      }))
+    }
     }
   }, [fetchBalanceForAddress])
 
@@ -171,10 +171,10 @@ export const usePetraWallet = () => {
     if (!walletState.address) return
 
     const balance = await fetchBalanceForAddress(walletState.address)
-    setWalletState(prev => ({
-      ...prev,
-      balance,
-    }))
+      setWalletState(prev => ({
+        ...prev,
+        balance,
+      }))
   }, [walletState.address, fetchBalanceForAddress])
 
   useEffect(() => {
@@ -211,14 +211,14 @@ export const usePetraWallet = () => {
               }
               
               const balance = await fetchBalanceForAddress(account.address)
-              setWalletState({
-                isConnected: true,
+            setWalletState({
+              isConnected: true,
                 address: account.address,
                 balance,
-                isLoading: false,
-                error: null,
-              })
-            }
+              isLoading: false,
+              error: null,
+            })
+          }
           }
         }
       } catch (error) {

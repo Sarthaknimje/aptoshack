@@ -257,12 +257,10 @@ const MultiPlatformTokenization: React.FC = () => {
       const { txId, assetId } = await createASAWithPetra({
         sender: address,
         petraWallet: petraWallet,
+        tokenId: tokenId, // content_id (video_id, tweet_id, LinkedIn post ID, etc.)
         assetName: tokenName,
         unitName: tokenSymbol.toUpperCase(),
-        totalSupply: actualSupply,
-        tokenId: tokenId, // content_id (video_id, tweet_id, LinkedIn post ID, etc.)
-        decimals: 0, // No decimals for simplicity
-        url: scrapedContent.url,
+        totalSupply: actualSupply, // Pass the calculated total supply
         iconUri: scrapedContent.thumbnailUrl || scrapedContent.url,
         projectUri: scrapedContent.url
       })
@@ -941,5 +939,4 @@ const TokenizeModal: React.FC<TokenizeModalProps> = ({
     </div>
   )
 }
-
 export default MultiPlatformTokenization

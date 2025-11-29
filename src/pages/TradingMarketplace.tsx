@@ -103,6 +103,8 @@ const TradingMarketplace: React.FC = () => {
   const [userTokenBalance, setUserTokenBalance] = useState(0) // User's token balance
   const [userAlgoBalance, setUserAlgoBalance] = useState(0) // User's APTOS balance
   const [showSuccessModal, setShowSuccessModal] = useState(false)
+  const [contractSupply, setContractSupply] = useState<number | null>(null) // Real contract supply
+  const [contractReserve, setContractReserve] = useState<number | null>(null) // Real contract APT reserve
   const [successTradeData, setSuccessTradeData] = useState<{
     tradeType: 'buy' | 'sell'
     amount: number
@@ -187,9 +189,14 @@ const TradingMarketplace: React.FC = () => {
               // For Aptos tokens, we need creator address and token_id (content_id)
               if (enhancedToken.token_id && enhancedToken.creator) {
                 fetchUserTokenBalance(enhancedToken.token_id)
+                // Also fetch contract state for bonding curve
+                fetchContractState()
               } else if (enhancedToken.asa_id) {
               fetchUserTokenBalance(enhancedToken.asa_id)
               }
+            } else if (enhancedToken.token_id && enhancedToken.creator) {
+              // Fetch contract state even if wallet not connected (for chart display)
+              fetchContractState(enhancedToken)
             }
             
             // Fetch real trade history for chart
@@ -220,8 +227,13 @@ const TradingMarketplace: React.FC = () => {
   }, [symbol])
 
   // Fetch real trade history for charts
-  const fetchTradeHistory = async (tokenId: number | string) => {
+  const fetchTradeHistory = async (tokenId: number | string | null) => {
     try {
+      if (tokenId === null || tokenId === undefined) {
+        console.warn('No tokenId provided to fetchTradeHistory')
+        setTrades([])
+        return
+      }
       // For Aptos tokens, use token_id (string) instead of asa_id (number)
       // Convert to string if it's a number to avoid scientific notation
       const id = typeof tokenId === 'string' ? tokenId : tokenId.toString()
@@ -265,6 +277,44 @@ const TradingMarketplace: React.FC = () => {
     }
   }
 
+  // Fetch contract state (supply and reserve) for Aptos tokens
+  const fetchContractState = async (tokenDataOverride?: any) => {
+    const data = tokenDataOverride || tokenData
+    if (!data?.creator || (!data?.content_id && !data?.token_id)) {
+      return
+    }
+    
+    try {
+      const tokenId = data.content_id || data.token_id
+      if (!tokenId) return
+      
+      const creatorAddress = data.creator
+      const [supply, reserve] = await Promise.all([
+        getCurrentSupply(creatorAddress, tokenId),
+        getAptReserve(creatorAddress, tokenId)
+      ])
+      
+      setContractSupply(supply)
+      setContractReserve(reserve)
+      
+      // Update tokenData with contract values for bonding curve
+      setTokenData((prev: any) => {
+        if (!prev) return prev
+        return {
+          ...prev,
+          bonding_curve_state: {
+            ...prev.bonding_curve_state,
+            token_supply: supply,
+            algo_reserve: reserve
+          },
+          current_price: supply > 0 ? reserve / supply : (prev.current_price || 0.00001)
+        }
+      })
+    } catch (error) {
+      console.error('Error fetching contract state:', error)
+    }
+  }
+
   // Fetch user's token balance from blockchain
   const fetchUserTokenBalance = async (asaId: number) => {
     if (!address || !isConnected || !asaId) {
@@ -275,15 +325,22 @@ const TradingMarketplace: React.FC = () => {
     try {
       // For Aptos tokens, we need creator address and token_id (content_id)
       // Get tokenId (content_id) from tokenData - this is what the contract expects
-      const tokenId = tokenData.content_id || tokenData.token_id
-      if (!tokenId || !tokenData.creator) {
-        console.warn('Missing tokenId (content_id) or creator address in tokenData')
+      if (!tokenData) {
+        console.warn('tokenData is null, cannot fetch token balance')
         setUserTokenBalance(0)
-          return
+        return
+      }
+      const tokenId = tokenData.content_id || tokenData.token_id
+      if (!tokenId) {
+        console.warn('Missing tokenId (content_id) in tokenData')
+        setUserTokenBalance(0)
+        return
       }
       
       // Fetch balance from Aptos contract
-      const balance = await getTokenBalance(tokenData.creator, tokenId, address)
+      // Use MODULE_ADDRESS instead of tokenData.creator since contract is deployed there
+      const creatorAddress = tokenData.creator || '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6'
+      const balance = await getTokenBalance(creatorAddress, tokenId, address)
           setUserTokenBalance(balance)
     } catch (error) {
       console.error('Error fetching token balance:', error)
@@ -494,12 +551,11 @@ const TradingMarketplace: React.FC = () => {
       return
     }
 
-    // Cache for supply values to avoid duplicate API calls (rate limit protection)
-    let cachedSupply: { current: number; total: number; reserve: number } | null = null
-
-    // Check balances (including minimum balance requirement)
+    // Minimum APT amount validation (1000 octas = 0.00001 APT is the contract's base price per token)
+    const MIN_APT_AMOUNT = 0.00001 // Minimum meaningful APT amount (1000 octas)
+    
     if (activeTab === 'buy') {
-      // For $0 initial price, calculate cost using contract's base price
+      // Validate buy estimate
       if (!estimate.algo_cost || estimate.algo_cost <= 0) {
         // If price is $0, use contract's base price (0.00001 APT per token)
         if (currentPrice === 0 || !currentPrice) {
@@ -508,10 +564,103 @@ const TradingMarketplace: React.FC = () => {
           estimate.new_price = basePricePerToken
         } else {
           setTradeError(`Invalid trade estimate. Cost: ${estimate.algo_cost || 'N/A'} APTOS. Please try again.`)
-        setIsProcessing(false)
-        return
+          setIsProcessing(false)
+          return
         }
       }
+      
+      // Check if estimate is invalid (zero, negative, or NaN)
+      const algoCost = Number(estimate.algo_cost)
+      if (!algoCost || algoCost <= 0 || !isFinite(algoCost)) {
+        setTradeError(
+          `Invalid trade estimate! ` +
+          `The backend returned a cost of ${estimate.algo_cost || 0} APTOS, which is invalid. ` +
+          `This may indicate an issue with the token's bonding curve configuration. ` +
+          `Please refresh the page and try again. If the problem persists, contact support.`
+        )
+        setIsProcessing(false)
+        return
+      }
+      
+      // Validate that the cost per token makes sense (sanity check)
+      const costPerToken = algoCost / tradeAmount
+      if (!isFinite(costPerToken) || costPerToken < 0.00000001) { 
+        // Less than 0.00000001 APT per token seems wrong, or NaN/Infinity
+        // This usually means the backend estimate is using incorrect reserve/supply values
+        setTradeError(
+          `Invalid trade estimate from backend! ` +
+          `The estimated cost per token (${isFinite(costPerToken) ? costPerToken.toFixed(12) : 'invalid'} APT) is too low. ` +
+          `This indicates the backend's bonding curve calculation is using incorrect contract state. ` +
+          `The frontend is correctly preventing this invalid transaction. ` +
+          `Please refresh the page. If the problem persists, the backend needs to fetch the actual contract state.`
+        )
+        setIsProcessing(false)
+        return
+      }
+      
+      // Check if APT cost is too small to be meaningful (but estimate is valid)
+      if (algoCost < MIN_APT_AMOUNT) {
+        // Calculate minimum tokens needed based on current cost per token
+        const minTokens = Math.ceil(MIN_APT_AMOUNT / costPerToken)
+        
+        // If the calculation results in an unreasonably large number or invalid, the estimate is likely wrong
+        if (!isFinite(minTokens) || minTokens > 1000000) {
+          setTradeError(
+            `Invalid trade estimate! ` +
+            `The estimated cost (${algoCost.toFixed(10)} APT) is too low to be valid. ` +
+            `This suggests the bonding curve calculation may be incorrect. ` +
+            `Please refresh the page and try again. If the problem persists, contact support.`
+          )
+        } else {
+          setTradeError(
+            `Trade amount is too small! ` +
+            `Minimum APT payment is ${MIN_APT_AMOUNT} APT (1000 octas). ` +
+            `Your trade would cost only ${algoCost.toFixed(10)} APT. ` +
+            `Please buy at least ${minTokens.toLocaleString()} tokens to meet the minimum.`
+          )
+        }
+        setIsProcessing(false)
+        return
+      }
+      
+      // Check if trade amount is unreasonably large (prevent potential overflow issues)
+      const MAX_TRADE_AMOUNT = 10000000 // 10 million tokens max per trade
+      if (tradeAmount > MAX_TRADE_AMOUNT) {
+        setTradeError(
+          `Trade amount is too large! ` +
+          `Maximum trade size is ${MAX_TRADE_AMOUNT.toLocaleString()} tokens per transaction. ` +
+          `Please split your trade into smaller amounts.`
+        )
+        setIsProcessing(false)
+        return
+      }
+    } else {
+      // Validate sell estimate
+      if (!estimate.algo_received || estimate.algo_received <= 0) {
+        setTradeError(`Invalid sell estimate. You would receive: ${estimate.algo_received || 'N/A'} APTOS. Please try again.`)
+        setIsProcessing(false)
+        return
+      }
+      
+      // Check if APT received is too small to be meaningful
+      if (estimate.algo_received < MIN_APT_AMOUNT) {
+        const minTokens = Math.ceil(MIN_APT_AMOUNT / (estimate.algo_received / tradeAmount))
+        setTradeError(
+          `Trade amount is too small! ` +
+          `Minimum APT received is ${MIN_APT_AMOUNT} APT (1000 octas). ` +
+          `Your trade would receive only ${estimate.algo_received.toFixed(10)} APT. ` +
+          `Please sell at least ${minTokens} tokens to meet the minimum.`
+        )
+        setIsProcessing(false)
+        return
+      }
+    }
+
+    // Cache for supply values to avoid duplicate API calls (rate limit protection)
+    let cachedSupply: { current: number; total: number; reserve: number } | null = null
+
+    // Check balances (including minimum balance requirement)
+    if (activeTab === 'buy') {
       
       // Check available supply from contract and adjust APT payment if needed
       // THIS CHECK IS CRITICAL - must block transaction if supply is insufficient
@@ -523,14 +672,17 @@ const TradingMarketplace: React.FC = () => {
             throw new Error('No tokenId found in tokenData')
           }
           
-          const currentSupply = await getCurrentSupply(tokenData.creator, tokenId)
-          const totalSupply = await getTotalSupply(tokenData.creator, tokenId)
+          // Use MODULE_ADDRESS for contract queries (contract is deployed there)
+          // The service functions will automatically try new contract first, then fallback to old contract
+          const creatorAddress = tokenData.creator || '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6'
+          const currentSupply = await getCurrentSupply(creatorAddress, tokenId)
+          const totalSupply = await getTotalSupply(creatorAddress, tokenId)
           
           // Try to get APT reserve, but if it fails (e.g., 400 error), default to 0
           // This is fine for first buy when reserve is 0 anyway
           let aptReserve = 0
           try {
-            aptReserve = await getAptReserve(tokenData.creator, tokenId)
+            aptReserve = await getAptReserve(creatorAddress, tokenId)
           } catch (reserveError) {
             console.warn('⚠️ Could not fetch APT reserve (this is OK for first buy):', reserveError)
             // Default to 0 for first buy - this is expected when no tokens have been bought yet
@@ -733,6 +885,9 @@ const TradingMarketplace: React.FC = () => {
             let totalSupply: number
             let aptReserve: number
             
+            // Define creatorAddress before the conditional so it's available in both branches
+            const creatorAddress = tokenData.creator || '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6'
+            
             // Use cached values if available, otherwise query contract
             if (cachedSupply) {
               console.log(`[Final Supply Check] Using cached supply values to avoid rate limits`)
@@ -747,15 +902,17 @@ const TradingMarketplace: React.FC = () => {
                 throw new Error('No tokenId found in tokenData')
               }
               
-              currentSupply = await getCurrentSupply(tokenData.creator, tokenId)
-              totalSupply = await getTotalSupply(tokenData.creator, tokenId)
-              aptReserve = await getAptReserve(tokenData.creator, tokenId)
+              // Use MODULE_ADDRESS for contract queries
+              // The service functions will automatically try new contract first, then fallback to old contract
+              currentSupply = await getCurrentSupply(creatorAddress, tokenId)
+              totalSupply = await getTotalSupply(creatorAddress, tokenId)
+              aptReserve = await getAptReserve(creatorAddress, tokenId)
             }
             
             const availableSupply = totalSupply - currentSupply
             
             console.log(`[Final Supply Check] ========================================`)
-            console.log(`[Final Supply Check] Creator: ${tokenData.creator}`)
+            console.log(`[Final Supply Check] Creator: ${creatorAddress}`)
             console.log(`[Final Supply Check] Current Supply: ${currentSupply}`)
             console.log(`[Final Supply Check] Total Supply: ${totalSupply}`)
             console.log(`[Final Supply Check] Available Supply: ${availableSupply}`)
@@ -884,10 +1041,11 @@ const TradingMarketplace: React.FC = () => {
               throw new Error('No tokenId found in tokenData')
             }
             
+            // Use MODULE_ADDRESS for contract calls (reuse creatorAddress from above)
             const buyResult = await buyTokensWithContract({
               buyer: address!,
               petraWallet: petraWallet,
-              creatorAddress: tokenData.creator || address!,
+              creatorAddress: creatorAddress,
               tokenId: tokenId, // content_id
               aptPayment: safeAptPayment, // Use reduced APT payment for extra safety
               minTokensReceived: minTokensReceived // Minimum tokens expected
@@ -895,6 +1053,28 @@ const TradingMarketplace: React.FC = () => {
             
             txId = buyResult.txId
             finalPrice = estimate.new_price
+            
+            // Sync contract trade to backend database
+            try {
+              // Get updated contract state after buy
+              const updatedSupply = await getCurrentSupply(creatorAddress, tokenId)
+              const updatedReserve = await getAptReserve(creatorAddress, tokenId)
+              
+              await TradingService.syncContractTrade(
+                tokenId,
+                'buy',
+                txId,
+                address!,
+                tradeAmount,
+                safeAptPayment,
+                updatedSupply,
+                updatedReserve / 100000000 // Convert octas to APT
+              )
+              console.log('✅ Synced buy trade to backend')
+            } catch (syncError) {
+              console.warn('⚠️ Failed to sync buy trade to backend (non-critical):', syncError)
+              // Don't fail the transaction if sync fails
+            }
         
         // Note: Token transfer is handled by the backend's bonding_curve_buy endpoint
         // The backend transfers tokens from creator to buyer automatically
@@ -928,29 +1108,69 @@ const TradingMarketplace: React.FC = () => {
         }
       } else {
         // Sell tokens using contract
-        // Note: sell_tokens requires creator signer, so we'll use backend service for now
-        // TODO: Update contract to support seller-initiated sells with liquidity pool
         const minAptReceived = (estimate.algo_received || 0) * 0.9 // 10% slippage tolerance
         
-        // Use backend service until contract supports seller-initiated sells
-        const result = await TradingService.executeSell(
-          assetId,
-          tradeAmount,
-          address!,
-          ''
-        )
-        
-        if (!result.success) {
-          throw new Error(result.error || 'Sell failed. Note: Selling requires creator approval in current contract design.')
+        // Get tokenId (content_id) from tokenData
+        const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
+        if (!tokenId) {
+          throw new Error('No tokenId found in tokenData')
         }
         
-        txId = result.transaction_id || 'pending'
-        finalPrice = result.new_price || estimate.new_price
+        // Use MODULE_ADDRESS for contract calls (contract is deployed there)
+        const creatorAddress = tokenData.creator || '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6'
         
-        // Receive APTOS (in production, this would be automatic)
-        if (result.algo_received) {
-          // APTOS would be sent automatically in a real DEX
-          console.log(`Would receive ${result.algo_received} APTOS`)
+        // Try to use contract to sell tokens, fallback to backend service
+        try {
+          const sellResult = await sellTokensWithContract({
+            seller: address!,
+            petraWallet: petraWallet,
+            creatorAddress: creatorAddress,
+            tokenId: tokenId, // content_id
+            tokenAmount: tradeAmount,
+            minAptReceived: minAptReceived
+          })
+          
+          txId = sellResult.txId
+          finalPrice = estimate.new_price
+          
+          // Sync contract trade to backend database
+          try {
+            // Get updated contract state after sell
+            const updatedSupply = await getCurrentSupply(creatorAddress, tokenId)
+            const updatedReserve = await getAptReserve(creatorAddress, tokenId)
+            
+            await TradingService.syncContractTrade(
+              tokenId,
+              'sell',
+              txId,
+              address!,
+              tradeAmount,
+              estimate.algo_received || 0,
+              updatedSupply,
+              updatedReserve / 100000000 // Convert octas to APT
+            )
+            console.log('✅ Synced sell trade to backend')
+          } catch (syncError) {
+            console.warn('⚠️ Failed to sync sell trade to backend (non-critical):', syncError)
+            // Don't fail the transaction if sync fails
+          }
+        } catch (contractError: any) {
+          // Fallback to backend service if contract call fails
+          console.warn('Contract sell failed, using backend service:', contractError)
+          
+          const result = await TradingService.executeSell(
+            assetId,
+            tradeAmount,
+            address!,
+            ''
+          )
+          
+          if (!result.success) {
+            throw new Error(result.error || 'Sell failed')
+          }
+          
+          txId = result.transaction_id || 'pending'
+          finalPrice = result.new_price || estimate.new_price
         }
       }
 
@@ -961,13 +1181,15 @@ const TradingMarketplace: React.FC = () => {
       await fetchTokenData()
       await fetchTradeHistory(assetId)
       
-      // Wait a moment for blockchain to update, then refresh user token balance
+      // Wait a moment for blockchain to update, then refresh user token balance and contract state
       setTimeout(async () => {
         await fetchUserTokenBalance(assetId)
+        await fetchContractState() // Refresh contract state for bonding curve
       }, 2000) // Wait 2 seconds for blockchain confirmation
       
       // Also refresh immediately (in case it's already updated)
       await fetchUserTokenBalance(assetId)
+      await fetchContractState() // Refresh contract state for bonding curve
 
       // Show success modal with confetti
       setSuccessTradeData({
@@ -1008,6 +1230,15 @@ const TradingMarketplace: React.FC = () => {
         )
       } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
         setTradeError('Transaction was rejected. Please approve the transaction in your wallet.')
+      } else if (errorMessage.includes('4001') || error?.code === 4001) {
+        setTradeError(
+          `Transaction failed (Error 4001).\n\n` +
+          `This usually means:\n` +
+          `• The transaction amount is invalid or too large\n` +
+          `• The estimate may be incorrect - please try a smaller amount\n` +
+          `• The token contract may need to be reinitialized\n\n` +
+          `Please try again with a smaller trade amount.`
+        )
       } else {
         setTradeError(`Failed to execute trade: ${errorMessage}`)
       }
@@ -1429,6 +1660,10 @@ const TradingMarketplace: React.FC = () => {
                     config={tokenData.bonding_curve_config}
                     currentSupply={
                       (() => {
+                        // Use contract supply if available (most accurate), otherwise fallback to database state
+                        if (contractSupply !== null) {
+                          return contractSupply
+                        }
                         const supply = tokenData.bonding_curve_state?.token_supply
                         const numSupply = typeof supply === 'number' ? supply : (typeof supply === 'string' ? parseFloat(supply) : 0)
                         return isNaN(numSupply) ? 0 : numSupply
@@ -1436,12 +1671,22 @@ const TradingMarketplace: React.FC = () => {
                     }
                     currentPrice={
                       (() => {
+                        // Calculate price from contract state if available
+                        if (contractSupply !== null && contractReserve !== null && contractSupply > 0) {
+                          return contractReserve / contractSupply
+                        }
                         const price = Number(tokenData.current_price || currentPrice)
                         return isNaN(price) || price <= 0 ? (tokenData.bonding_curve_config?.initial_price || 0.001) : price
                       })()
                     }
                     marketCap={
                       (() => {
+                        // Use contract values for accurate market cap
+                        if (contractSupply !== null && contractReserve !== null && contractSupply > 0) {
+                          const contractPrice = contractReserve / contractSupply
+                          const totalSupply = Number(tokenData.total_supply || 0)
+                          return contractPrice * totalSupply
+                        }
                         const price = Number(tokenData.current_price || 0)
                         const supply = Number(tokenData.total_supply || 0)
                         const cap = price * supply
