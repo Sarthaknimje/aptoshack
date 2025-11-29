@@ -5,6 +5,20 @@ import os
 import sqlite3
 import hashlib
 from datetime import datetime
+import base64
+import traceback
+import secrets
+import logging
+import uuid
+from functools import wraps
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import Flow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+import google.auth.exceptions
+from dotenv import load_dotenv
+
 # Configure logging first (before any logger usage)
 logging.basicConfig(
     level=logging.INFO,
@@ -24,19 +38,6 @@ try:
 except ImportError:
     APTOS_SDK_AVAILABLE = False
     logger.warning("aptos_sdk not available - token creation will be handled via frontend Petra wallet")
-import base64
-import traceback
-import secrets
-import logging
-import uuid
-from functools import wraps
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import Flow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-import google.auth.exceptions
-from dotenv import load_dotenv
 
 # Import bonding curve classes
 try:
