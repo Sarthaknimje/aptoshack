@@ -1242,14 +1242,22 @@ def create_creator_token():
         conn = sqlite3.connect('creatorvault.db')
         cursor = conn.cursor()
         
+        # Get content_id (token_id) - this is the unique identifier for the token
+        content_id = data.get('content_id', '')
+        if not content_id:
+            # Fallback: use asset_id if content_id not provided
+            content_id = asset_id
+        
+        # Use token_id (content_id) as the unique identifier, and metadata_address for the FA metadata
         cursor.execute('''
-            INSERT INTO tokens (asa_id, creator, token_name, token_symbol, total_supply, 
+            INSERT INTO tokens (token_id, metadata_address, creator, token_name, token_symbol, total_supply, 
                               current_price, market_cap, youtube_channel_title, youtube_subscribers,
                               bonding_curve_config, bonding_curve_state, platform, content_url,
                               content_id, content_description, content_thumbnail)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ''', (
-            asset_id, 
+            content_id,  # token_id (unique identifier - content_id)
+            asset_id,    # metadata_address (Aptos FA metadata object address)
             data.get('creator_address', creator_address),
             data['token_name'], 
             data['token_symbol'], 
@@ -1262,7 +1270,7 @@ def create_creator_token():
             bonding_curve_state_json,
             data.get('platform', 'youtube'),
             data.get('content_url', ''),
-            data.get('content_id', ''),
+            content_id,  # content_id (same as token_id)
             data.get('description', ''),
             data.get('content_thumbnail', '')
         ))
