@@ -165,6 +165,9 @@ const TradingMarketplace: React.FC = () => {
             const enhancedToken = {
               ...token,
               ...tokenDetails,
+              // Preserve content_id and token_id from original token (important for Aptos tokens)
+              content_id: token.content_id || tokenDetails?.content_id,
+              token_id: token.token_id || tokenDetails?.token_id,
               high24h: token.current_price * 1.05,
               low24h: token.current_price * 0.95,
               volume24h: token.volume_24h || 0,
