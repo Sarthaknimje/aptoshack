@@ -133,8 +133,8 @@ export async function createASAWithPetra({
         ]
       }
 
-      // Sign and submit transaction
-      const response = await petraWallet.signAndSubmitTransaction(transaction)
+      // Sign and submit transaction (using new API format)
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
       const txId = response.hash
 
       console.log(`✅ FA token creation transaction submitted: ${txId}`)
@@ -188,7 +188,8 @@ async function mintInitialSupply({
     arguments: [amount.toString()]
   }
 
-  const response = await petraWallet.signAndSubmitTransaction(transaction)
+  // Sign and submit transaction (using new API format)
+  const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
   await waitForTransaction(response.hash)
   return response.hash
 }
@@ -308,8 +309,8 @@ export async function sellTokensWithContract({
         ]
       }
 
-      // Sign and submit transaction
-      const response = await petraWallet.signAndSubmitTransaction(transaction)
+      // Sign and submit transaction (using new API format)
+      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
       const txId = response.hash
 
       console.log(`✅ Sell tokens transaction submitted: ${txId}`)
