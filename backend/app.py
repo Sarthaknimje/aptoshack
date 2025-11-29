@@ -1805,18 +1805,18 @@ def get_trades(token_identifier):
                 token_row = cursor.fetchone()
                 if token_row:
                     asa_id_from_token = token_row[0]
-        cursor.execute(f'''
-            SELECT trade_type, amount, price, created_at, transaction_id, trader_address
-            FROM trades
-            WHERE asa_id = ? AND created_at >= {time_filter}
-            ORDER BY created_at DESC
-            LIMIT ?
-        ''', (asa_id_from_token, limit))
-        else:
-            # No token found, return empty
-            trades = []
-            conn.close()
-            return jsonify({
+                    cursor.execute(f'''
+                        SELECT trade_type, amount, price, created_at, transaction_id, trader_address
+                        FROM trades
+                        WHERE asa_id = ? AND created_at >= {time_filter}
+                        ORDER BY created_at DESC
+                        LIMIT ?
+                    ''', (asa_id_from_token, limit))
+                else:
+                    # No token found, return empty
+                    trades = []
+                    conn.close()
+                    return jsonify({
                         "success": True,
                         "trades": [],
                         "count": 0
