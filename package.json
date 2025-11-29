@@ -56,6 +56,7 @@
   },
   "dependencies": {
     "@aptos-labs/ts-sdk": "^1.39.0",
+    "@shelby-protocol/sdk": "^0.0.7",
     "@tanstack/react-query": "^5.17.0",
     "aptos": "^1.8.0",
     "axios": "^1.13.0",

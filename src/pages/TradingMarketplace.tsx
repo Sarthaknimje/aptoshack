@@ -22,7 +22,8 @@ import {
   Heart,
   Share2,
   Wallet,
-  Sparkles
+  Sparkles,
+  Coins
 } from 'lucide-react'
 import { 
   LineChart as RechartsLine, 
@@ -44,6 +45,7 @@ import ConfettiAnimation from '../components/ConfettiAnimation'
 import BondingCurveChart from '../components/BondingCurveChart'
 import SVGBackground from '../components/SVGBackground'
 import PremiumBackground from '../components/PremiumBackground'
+import PremiumContentGate from '../components/PremiumContentGate'
 
 interface TradeData {
   type: 'buy' | 'sell'
@@ -2138,6 +2140,40 @@ const TradingMarketplace: React.FC = () => {
             </motion.div>
           </div>
         </div>
+
+        {/* Premium Content Section */}
+        {tokenData && (tokenData.premium_content_url || tokenData.premium_content_blob_id) && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+            className="mt-6 card"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white flex items-center space-x-2">
+                <Coins className="w-6 h-6 text-yellow-400" />
+                <span>Premium Content</span>
+                <span className="px-2 py-1 bg-yellow-500/20 text-yellow-400 rounded-full text-xs font-semibold">
+                  Token Gated
+                </span>
+              </h3>
+            </div>
+            
+            <PremiumContentGate
+              tokenData={{
+                creator: tokenData.creator || tokenData.creator_address,
+                token_id: tokenData.token_id,
+                content_id: tokenData.content_id,
+                token_symbol: tokenData.token_symbol || tokenData.symbol,
+                token_name: tokenData.token_name || tokenData.name,
+              }}
+              premiumContentUrl={tokenData.premium_content_url || tokenData.premium_content_blob_id}
+              premiumContentType={tokenData.premium_content_type || 'video'}
+              minimumBalance={1}
+              className="w-full"
+            />
+          </motion.div>
+        )}
       </div>
 
       {/* Trade Success Modal */}

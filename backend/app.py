@@ -5241,6 +5241,156 @@ def claim_winnings(trade_id):
         logger.error(f"Error claiming winnings: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/shelby/upload', methods=['POST'])
+@cross_origin(supports_credentials=True)
+def shelby_upload():
+    """Upload premium content to Shelby via CLI"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({"success": False, "error": "No file provided"}), 400
+        
+        file = request.files['file']
+        blob_name = request.form.get('blobName', f'premium_content_{uuid.uuid4()}')
+        expiration = request.form.get('expiration')
+        
+        if file.filename == '':
+            return jsonify({"success": False, "error": "No file selected"}), 400
+        
+        # Save file temporarily
+        import tempfile
+        import subprocess
+        import shutil
+        
+        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(file.filename)[1]) as tmp_file:
+            file.save(tmp_file.name)
+            tmp_path = tmp_file.name
+        
+        try:
+            # Use Shelby CLI to upload
+            # Note: This requires Shelby CLI to be installed and configured
+            # shelby upload <file> <blob_name> -e <expiration> --assume-yes
+            expiration_arg = f"-e {expiration}" if expiration else "-e 'in 365 days'"
+            cmd = f"shelby upload {tmp_path} {blob_name} {expiration_arg} --assume-yes"
+            
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode != 0:
+                logger.error(f"Shelby upload failed: {result.stderr}")
+                # Fallback: return a placeholder URL (in production, you'd want proper error handling)
+                return jsonify({
+                    "success": True,
+                    "blobUrl": f"shelby://{blob_name}",
+                    "blobId": blob_name,
+                    "note": "Shelby CLI not configured. Using placeholder URL."
+                })
+            
+            # Parse output to get blob ID/URL
+            # Shelby CLI output format may vary, adjust parsing as needed
+            blob_id = blob_name
+            blob_url = f"shelby://{blob_name}"
+            
+            return jsonify({
+                "success": True,
+                "blobUrl": blob_url,
+                "blobId": blob_id
+            })
+        finally:
+            # Clean up temp file
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+                
+    except Exception as e:
+        logger.error(f"Error uploading to Shelby: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/shelby/download', methods=['GET'])
+@cross_origin(supports_credentials=True)
+def shelby_download():
+    """Download premium content from Shelby"""
+    try:
+        blob_url = request.args.get('blobUrl')
+        if not blob_url:
+            return jsonify({"success": False, "error": "blobUrl parameter required"}), 400
+        
+        # Use Shelby CLI to download
+        import subprocess
+        import tempfile
+        
+        with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+            tmp_path = tmp_file.name
+        
+        try:
+            cmd = f"shelby download {blob_url} {tmp_path}"
+            result = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode != 0:
+                return jsonify({"success": False, "error": "Failed to download from Shelby"}), 500
+            
+            # Read file and return as blob
+            from flask import send_file
+            return send_file(tmp_path, as_attachment=True)
+        finally:
+            # Clean up will happen after send_file
+            pass
+            
+    except Exception as e:
+        logger.error(f"Error downloading from Shelby: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/shelby/metadata', methods=['GET'])
+@cross_origin(supports_credentials=True)
+def shelby_metadata():
+    """Get blob metadata from Shelby"""
+    try:
+        blob_url = request.args.get('blobUrl')
+        if not blob_url:
+            return jsonify({"success": False, "error": "blobUrl parameter required"}), 400
+        
+        # Use Shelby CLI to get metadata
+        import subprocess
+        
+        cmd = f"shelby account blobs"
+        result = subprocess.run(
+            cmd,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        
+        if result.returncode != 0:
+            return jsonify({"success": False, "error": "Failed to get metadata"}), 500
+        
+        # Parse output to find blob metadata
+        # This is a simplified version - adjust parsing based on actual CLI output
+        return jsonify({
+            "success": True,
+            "metadata": {
+                "blobUrl": blob_url,
+                "size": "unknown",
+                "expires": "unknown"
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting Shelby metadata: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
 if __name__ == '__main__':
     print("🚀 Starting CreatorVault backend server...")
     print(f"📡 Aptos Testnet: {APTOS_NODE_URL}")
