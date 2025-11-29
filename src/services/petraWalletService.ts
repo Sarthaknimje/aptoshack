@@ -118,7 +118,26 @@ export async function createASAWithPetra({
         throw new Error(`Invalid total supply: ${totalSupply}`)
       }
 
+      // Validate inputs
+      if (!assetName || assetName.trim().length === 0) {
+        throw new Error('Asset name cannot be empty')
+      }
+      if (!unitName || unitName.trim().length === 0) {
+        throw new Error('Unit name (symbol) cannot be empty')
+      }
+      if (decimals < 0 || decimals > 18) {
+        throw new Error('Decimals must be between 0 and 18')
+      }
+
+      console.log(`[createASAWithPetra] Creating token with:`)
+      console.log(`  - Name: ${assetName}`)
+      console.log(`  - Symbol: ${unitName.toUpperCase()}`)
+      console.log(`  - Decimals: ${decimals}`)
+      console.log(`  - Total Supply: ${safeTotalSupply}`)
+      console.log(`  - Creator: ${sender}`)
+
       // Build transaction to call initialize function
+      // Note: Aptos accepts u64 as string to avoid JavaScript number precision issues
       const transaction = {
         type: "entry_function_payload",
         function: `${MODULE_ADDRESS}::creator_token::initialize`,
@@ -126,12 +145,14 @@ export async function createASAWithPetra({
         arguments: [
           Array.from(new TextEncoder().encode(assetName)), // name: vector<u8>
           Array.from(new TextEncoder().encode(unitName.toUpperCase())), // symbol: vector<u8>
-          decimals, // decimals: u8
-          safeTotalSupply.toString(), // total_supply: u64
+          decimals.toString(), // decimals: u8 (as string for consistency)
+          safeTotalSupply.toString(), // total_supply: u64 (as string to avoid precision issues)
           Array.from(new TextEncoder().encode(iconUri || url || "")), // icon_uri: vector<u8>
           Array.from(new TextEncoder().encode(projectUri || url || "")) // project_uri: vector<u8>
         ]
       }
+
+      console.log(`[createASAWithPetra] Transaction payload:`, JSON.stringify(transaction, null, 2))
 
       // Sign and submit transaction (using new API format)
       const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
