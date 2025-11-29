@@ -25,9 +25,10 @@ export interface TradeResult {
 export class TradingService {
   /**
    * Estimate buy trade using bonding curve
+   * Supports both asa_id (number) for legacy Algorand tokens and token_id (string) for Aptos tokens
    */
   static async estimateBuy(
-    asaId: number,
+    tokenIdentifier: number | string,
     tokenAmount: number
   ): Promise<TradeEstimate> {
     try {
@@ -35,7 +36,8 @@ export class TradingService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          asa_id: asaId,
+          asa_id: typeof tokenIdentifier === 'number' ? tokenIdentifier : undefined,
+          token_id: typeof tokenIdentifier === 'string' ? tokenIdentifier : undefined,
           token_amount: tokenAmount,
           trade_type: 'buy'
         })
@@ -58,9 +60,10 @@ export class TradingService {
 
   /**
    * Estimate sell trade using bonding curve
+   * Supports both asa_id (number) for legacy Algorand tokens and token_id (string) for Aptos tokens
    */
   static async estimateSell(
-    asaId: number,
+    tokenIdentifier: number | string,
     tokenAmount: number
   ): Promise<TradeEstimate> {
     try {
@@ -68,7 +71,8 @@ export class TradingService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          asa_id: asaId,
+          asa_id: typeof tokenIdentifier === 'number' ? tokenIdentifier : undefined,
+          token_id: typeof tokenIdentifier === 'string' ? tokenIdentifier : undefined,
           token_amount: tokenAmount,
           trade_type: 'sell'
         })

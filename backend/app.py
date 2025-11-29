@@ -3123,23 +3123,33 @@ def bonding_curve_sell():
 @app.route('/api/bonding-curve/estimate', methods=['POST'])
 @handle_errors
 def bonding_curve_estimate():
-    """Estimate trade without executing"""
+    """Estimate trade without executing
+    Supports both asa_id (int) for legacy Algorand tokens and token_id (string) for Aptos tokens
+    """
     if BondingCurve is None:
         return jsonify({"success": False, "error": "Bonding curve not available"}), 500
     
     try:
         data = request.get_json()
-        asa_id = data.get('asa_id')
+        token_identifier = data.get('asa_id') or data.get('token_id')  # Support both
         token_amount = float(data.get('token_amount', 0))
         trade_type = data.get('trade_type', 'buy')
         
-        if not asa_id:
-            return jsonify({"success": False, "error": "Missing asa_id"}), 400
+        if not token_identifier:
+            return jsonify({"success": False, "error": "Missing asa_id or token_id"}), 400
         
         conn = sqlite3.connect('creatorvault.db')
         cursor = conn.cursor()
         
-        cursor.execute('SELECT bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE asa_id = ?', (asa_id,))
+        # Try to parse as integer (legacy asa_id) or use as string (Aptos token_id)
+        try:
+            asa_id_int = int(token_identifier)
+            # Use asa_id for legacy tokens
+            cursor.execute('SELECT bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE asa_id = ?', (asa_id_int,))
+        except ValueError:
+            # Use token_id for Aptos tokens (metadata address or content_id)
+            cursor.execute('SELECT bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE token_id = ?', (token_identifier,))
+        
         row = cursor.fetchone()
         
         if not row:
@@ -3152,7 +3162,7 @@ def bonding_curve_estimate():
         if (not bonding_curve_config_json or not bonding_curve_state_json or 
             (isinstance(bonding_curve_config_json, str) and bonding_curve_config_json.strip() == '') or
             (isinstance(bonding_curve_state_json, str) and bonding_curve_state_json.strip() == '')):
-            logger.warning(f"Bonding curve not initialized for token {asa_id}, initializing now...")
+            logger.warning(f"Bonding curve not initialized for token {token_identifier}, initializing now...")
             # Start with $0 price (bonding curve will set price as tokens are bought)
             initial_price = 0.0
             bonding_curve = BondingCurve(
@@ -3166,14 +3176,22 @@ def bonding_curve_estimate():
             bonding_curve_config_json = json.dumps(bonding_curve.to_dict())
             bonding_curve_state_json = json.dumps(bonding_curve_state.to_dict())
             
-            # Update database
-            cursor.execute('''
-                UPDATE tokens 
-                SET bonding_curve_config = ?, bonding_curve_state = ?
-                WHERE asa_id = ?
-            ''', (bonding_curve_config_json, bonding_curve_state_json, asa_id))
+            # Update database - support both asa_id and token_id
+            try:
+                asa_id_int = int(token_identifier)
+                cursor.execute('''
+                    UPDATE tokens 
+                    SET bonding_curve_config = ?, bonding_curve_state = ?
+                    WHERE asa_id = ?
+                ''', (bonding_curve_config_json, bonding_curve_state_json, asa_id_int))
+            except ValueError:
+                cursor.execute('''
+                    UPDATE tokens 
+                    SET bonding_curve_config = ?, bonding_curve_state = ?
+                    WHERE token_id = ?
+                ''', (bonding_curve_config_json, bonding_curve_state_json, token_identifier))
             conn.commit()
-            logger.info(f"✅ Initialized bonding curve for token {asa_id}")
+            logger.info(f"✅ Initialized bonding curve for token {token_identifier}")
         
         curve = BondingCurve.from_dict(json.loads(bonding_curve_config_json))
         state = BondingCurveState.from_dict(json.loads(bonding_curve_state_json))
