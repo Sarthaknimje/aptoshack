@@ -1094,15 +1094,15 @@ def get_youtube_channel():
         # If no cache or cache is stale, try to fetch from API
         # But handle quota errors gracefully
         try:
-        credentials_data = session_data['credentials']
-        credentials = Credentials(
-            token=credentials_data['token'],
-            refresh_token=credentials_data['refresh_token'],
-            token_uri=credentials_data['token_uri'],
-            client_id=credentials_data['client_id'],
-            client_secret=credentials_data['client_secret'],
-            scopes=credentials_data['scopes']
-        )
+            credentials_data = session_data['credentials']
+            credentials = Credentials(
+                token=credentials_data['token'],
+                refresh_token=credentials_data['refresh_token'],
+                token_uri=credentials_data['token_uri'],
+                client_id=credentials_data['client_id'],
+                client_secret=credentials_data['client_secret'],
+                scopes=credentials_data['scopes']
+            )
         
         # Refresh token if needed
         if credentials.expired:
