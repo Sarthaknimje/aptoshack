@@ -946,6 +946,12 @@ const TokenizeModal: React.FC<TokenizeModalProps> = ({
   const [premiumContentType, setPremiumContentType] = useState<string>('video')
   const [uploadingPremium, setUploadingPremium] = useState(false)
   const [premiumContentPreview, setPremiumContentPreview] = useState<string | null>(null)
+  const [shelbyUploadInfo, setShelbyUploadInfo] = useState<{
+    blobUrl?: string
+    blobId?: string
+    explorerUrl?: string
+    fileName?: string
+  } | null>(null)
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -988,6 +994,8 @@ const TokenizeModal: React.FC<TokenizeModalProps> = ({
     const checkShelbyInfo = () => {
       if ((window as any).shelbyUploadInfo) {
         setShelbyUploadInfo((window as any).shelbyUploadInfo)
+        // Clear from window after reading
+        delete (window as any).shelbyUploadInfo
       }
     }
     
