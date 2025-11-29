@@ -4029,9 +4029,9 @@ def get_youtube_videos():
                             'token_symbol': token_symbol
                         }
             except sqlite3.OperationalError as e:
-            # Table doesn't exist yet or database is empty - this is fine
-            logger.info(f"No tokenized videos found (database may be empty): {e}")
-            tokenized_videos = {}
+                # Table doesn't exist yet or database is empty - this is fine
+                logger.info(f"No tokenized videos found (database may be empty): {e}")
+                tokenized_videos = {}
             finally:
                 conn.close()
             
