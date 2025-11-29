@@ -142,22 +142,19 @@ export async function createASAWithPetra({
       // Wait for confirmation
       const txData = await waitForTransaction(txId)
       
-      // Extract metadata address
-      const metadataAddress = extractMetadataAddress(txData, sender, unitName)
-      
-      // Mint initial supply to creator
-      await mintInitialSupply({
-        sender,
-        petraWallet,
-        amount: safeTotalSupply
-      })
-
-      console.log(`✅ FA token created with metadata address: ${metadataAddress}`)
-      return { 
-        txId, 
-        assetId: metadataAddress, // Use metadata address as asset ID
-        metadataAddress 
-      }
+              // Extract metadata address
+              const metadataAddress = extractMetadataAddress(txData, sender, unitName)
+              
+              // Don't mint initial supply - tokens will be minted when bought via bonding curve
+              // Starting with 0 supply, 0 reserve, price = $0
+              console.log(`✅ FA token created with metadata address: ${metadataAddress}`)
+              console.log(`ℹ️ Token starts with 0 supply. Tokens will be minted when users buy via bonding curve.`)
+              
+              return { 
+                txId, 
+                assetId: metadataAddress, // Use metadata address as asset ID
+                metadataAddress 
+              }
     } catch (error: any) {
       console.error('❌ Error creating FA token:', error)
       
@@ -198,19 +195,20 @@ async function mintInitialSupply({
 
 /**
  * Buy tokens using Move contract (bonding curve)
+ * New signature: pays APT and receives tokens based on bonding curve
  */
 export async function buyTokensWithContract({
   buyer,
   petraWallet,
   creatorAddress,
-  tokenAmount,
-  maxAptPayment
+  aptPayment,
+  minTokensReceived
 }: {
   buyer: string
   petraWallet: any
   creatorAddress: string
-  tokenAmount: number
-  maxAptPayment: number // in APT (will be converted to octas)
+  aptPayment: number // APT amount to pay (will be converted to octas)
+  minTokensReceived?: number // Minimum tokens expected (slippage protection)
 }): Promise<{ txId: string; tokensReceived: number; aptSpent: number }> {
   return executeWithQueue(async () => {
     try {
@@ -218,26 +216,25 @@ export async function buyTokensWithContract({
         throw new Error('Petra wallet not connected')
       }
 
-      const safeTokenAmount = Math.round(tokenAmount)
-      if (!Number.isSafeInteger(safeTokenAmount) || safeTokenAmount <= 0) {
-        throw new Error(`Invalid token amount: ${tokenAmount}`)
+      // Convert APT to octas (1 APT = 100000000 octas)
+      const aptPaymentOctas = Math.round(aptPayment * 100000000)
+      if (!Number.isSafeInteger(aptPaymentOctas) || aptPaymentOctas <= 0) {
+        throw new Error(`Invalid APT payment: ${aptPayment}`)
       }
 
-      // Convert APT to octas (1 APT = 100000000 octas)
-      const maxAptPaymentOctas = Math.round(maxAptPayment * 100000000)
-      if (!Number.isSafeInteger(maxAptPaymentOctas) || maxAptPaymentOctas <= 0) {
-        throw new Error(`Invalid max payment: ${maxAptPayment} APT`)
-      }
+      // Minimum tokens (slippage protection) - default to 0 if not provided
+      const minTokens = minTokensReceived ? Math.round(minTokensReceived) : 0
 
       // Build transaction to call buy_tokens function
+      // New signature: buy_tokens(buyer, creator, apt_payment, min_tokens_received)
       const transaction = {
         type: "entry_function_payload",
         function: `${MODULE_ADDRESS}::creator_token::buy_tokens`,
         type_arguments: [],
         arguments: [
           creatorAddress, // creator: address
-          safeTokenAmount.toString(), // token_amount: u64
-          maxAptPaymentOctas.toString() // max_apt_payment: u64 (in octas)
+          aptPaymentOctas.toString(), // apt_payment: u64 (in octas)
+          minTokens.toString() // min_tokens_received: u64
         ]
       }
 
@@ -250,14 +247,13 @@ export async function buyTokensWithContract({
       // Wait for confirmation
       await waitForTransaction(txId)
 
-      // Calculate actual cost (0.001 APT per token)
-      const basePricePerToken = 0.001 // APT
-      const aptSpent = safeTokenAmount * basePricePerToken
-
+      // Note: Actual tokens received will be determined by the bonding curve
+      // We'll need to fetch the balance after the transaction
+      // For now, return the APT spent
       return {
         txId,
-        tokensReceived: safeTokenAmount,
-        aptSpent
+        tokensReceived: 0, // Will be updated after fetching balance
+        aptSpent: aptPayment
       }
     } catch (error: any) {
       console.error('❌ Error buying tokens:', error)

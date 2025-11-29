@@ -69,10 +69,10 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     try {
       // Connect to Petra Wallet
       const response = await wallet.connect()
-      
+
       // Get account info
       const account = await wallet.account()
-      
+
       // Save account info
       setAccounts([account.address])
       setAddress(account.address)
@@ -196,10 +196,10 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     const wallet = getPetraWallet()
     if (wallet) {
       setPetraWallet(wallet)
-      
+
       // Check for existing connection
-      const checkConnection = async () => {
-        try {
+    const checkConnection = async () => {
+      try {
           const isConnected = await wallet.isConnected()
           if (isConnected) {
             const account = await wallet.account()
@@ -207,13 +207,13 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
             setAddress(account.address)
             setIsConnectedToPetraWallet(true)
             await fetchBalance(account.address)
-          }
-        } catch (error) {
-          console.error('Error checking connection:', error)
         }
+      } catch (error) {
+        console.error('Error checking connection:', error)
       }
+    }
 
-      checkConnection()
+    checkConnection()
     }
   }, [])
 

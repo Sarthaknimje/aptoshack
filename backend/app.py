@@ -1218,9 +1218,9 @@ def create_creator_token():
                 logger.warning(f"Could not fetch YouTube channel info: {e}")
                 # Continue without YouTube data
         
-        # Calculate market cap
-        initial_price = float(data.get('initial_price', data.get('token_price', 0.001)))
-        market_cap = float(data['total_supply']) * initial_price
+        # Start with $0 price and $0 market cap (bonding curve will set price)
+        initial_price = 0.0  # Price starts at $0
+        market_cap = 0.0  # Market cap starts at $0
         
         # Initialize bonding curve
         if BondingCurve is not None:
@@ -1377,8 +1377,9 @@ def create_video_token():
         # Token was already created on-chain via Petra Wallet
         print(f"✅ Token already created on Aptos with metadata address: {asset_id}")
         
-        # Calculate market cap
-        market_cap = float(data['total_supply']) * dynamic_price
+        # Start with $0 price and $0 market cap (bonding curve will set price)
+        initial_price = 0.0  # Price starts at $0
+        market_cap = 0.0  # Market cap starts at $0
         
         # Store in database
         conn = sqlite3.connect('creatorvault.db')

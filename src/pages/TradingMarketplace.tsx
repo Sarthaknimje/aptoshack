@@ -554,14 +554,16 @@ const TradingMarketplace: React.FC = () => {
         }
         
         // Use contract-based buy function (atomic: pays APT and receives tokens)
-        const maxAptPayment = algoAmount * 1.1 // 10% slippage tolerance
+        // New signature: buy_tokens accepts APT payment, not token amount
+        // Calculate min tokens expected for slippage protection (90% of estimated)
+        const minTokensReceived = Math.floor(tradeAmount * 0.9) // 10% slippage tolerance
         
         const buyResult = await buyTokensWithContract({
           buyer: address!,
           petraWallet: petraWallet,
           creatorAddress: tokenData.creator || address!,
-          tokenAmount: Math.floor(tradeAmount),
-          maxAptPayment: maxAptPayment
+          aptPayment: algoAmount, // APT amount to pay
+          minTokensReceived: minTokensReceived // Minimum tokens expected
         })
         
         txId = buyResult.txId
