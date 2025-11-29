@@ -364,3 +364,38 @@ module creatorvault::creator_token {
         table::contains(&creator_tokens.tokens, token_id)
     }
 }
+
+    /// Transfer tokens between accounts
+    entry fun transfer(
+        sender: &signer,
+        creator: address,
+        recipient: address,
+        amount: u64,
+    ) acquires TokenData {
+        let metadata = borrow_global<TokenData>(creator).metadata;
+        primary_fungible_store::transfer(sender, metadata, recipient, amount);
+    }
+
+    /// Burn tokens (only creator can call)
+    entry fun burn(
+        creator: &signer,
+        amount: u64,
+    ) acquires TokenData {
+        let creator_addr = signer::address_of(creator);
+        let token_data = borrow_global_mut<TokenData>(creator_addr);
+        
+        // Only creator can burn
+        assert!(creator_addr == token_data.creator, error::permission_denied(E_NOT_CREATOR));
+        
+        // Check balance
+        let balance = primary_fungible_store::balance(creator_addr, token_data.metadata);
+        assert!(balance >= amount, error::invalid_argument(E_INSUFFICIENT_BALANCE));
+        
+        // Withdraw and burn
+        let fa = primary_fungible_store::withdraw(creator, token_data.metadata, amount);
+        fungible_asset::burn(&token_data.burn_ref, fa);
+        
+        // Update current supply
+        token_data.current_supply = token_data.current_supply - amount;
+    }
+}

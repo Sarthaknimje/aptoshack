@@ -185,7 +185,7 @@ const TradingMarketplace: React.FC = () => {
               if (enhancedToken.token_id && enhancedToken.creator) {
                 fetchUserTokenBalance(enhancedToken.token_id)
               } else if (enhancedToken.asa_id) {
-                fetchUserTokenBalance(enhancedToken.asa_id)
+              fetchUserTokenBalance(enhancedToken.asa_id)
               }
             }
             
@@ -276,12 +276,12 @@ const TradingMarketplace: React.FC = () => {
       if (!tokenId || !tokenData.creator) {
         console.warn('Missing tokenId (content_id) or creator address in tokenData')
         setUserTokenBalance(0)
-        return
+          return
       }
       
       // Fetch balance from Aptos contract
       const balance = await getTokenBalance(tokenData.creator, tokenId, address)
-      setUserTokenBalance(balance)
+          setUserTokenBalance(balance)
     } catch (error) {
       console.error('Error fetching token balance:', error)
       setUserTokenBalance(0)
@@ -405,7 +405,9 @@ const TradingMarketplace: React.FC = () => {
 
   // Estimate trade when amount changes
   useEffect(() => {
-    if (!tokenData?.asa_id || !amount || parseFloat(amount) <= 0) {
+    // Support both token_id (Aptos) and asa_id (Algorand)
+    const tokenIdentifier = tokenData?.token_id || tokenData?.asa_id
+    if (!tokenIdentifier || !amount || parseFloat(amount) <= 0) {
       setTradeEstimate(null)
       return
     }
@@ -418,11 +420,6 @@ const TradingMarketplace: React.FC = () => {
         // For buy: amount is in tokens, estimate APT cost
         // For sell: amount is in tokens, estimate APT received
         // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
-        const tokenIdentifier = tokenData.token_id || tokenData.asa_id
-        if (!tokenIdentifier) {
-          setTradeEstimate(null)
-          return
-        }
         const estimate = activeTab === 'buy'
           ? await TradingService.estimateBuy(tokenIdentifier, tokenAmount)
           : await TradingService.estimateSell(tokenIdentifier, tokenAmount)
@@ -438,7 +435,7 @@ const TradingMarketplace: React.FC = () => {
 
     const timeoutId = setTimeout(estimateTrade, 500) // Debounce
     return () => clearTimeout(timeoutId)
-  }, [amount, activeTab, tokenData?.asa_id])
+  }, [amount, activeTab, tokenData?.token_id, tokenData?.asa_id])
 
   const handleTrade = async () => {
     if (!isConnected) {

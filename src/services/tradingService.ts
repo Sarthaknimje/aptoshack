@@ -246,3 +246,19 @@ export class TradingService {
   }
 }
 
+
+  static async getTokenDetails(tokenIdentifier: number | string): Promise<any> {
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/token/${tokenIdentifier}`)
+      const result = await response.json()
+      if (result.success) {
+        return result.token
+      }
+      return null
+    } catch (error) {
+      console.error('Error fetching token details:', error)
+      return null
+    }
+  }
+}
+

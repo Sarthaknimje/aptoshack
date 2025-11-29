@@ -591,3 +591,127 @@ export async function getMetadataAddress(creatorAddress: string): Promise<string
     return creatorAddress
   }
 }
+
+  } catch (error) {
+    console.error('❌ Error getting token balance:', error)
+    return 0
+  }
+}
+
+/**
+ * Get current supply of a token
+ */
+export async function getCurrentSupply(creatorAddress: string, tokenId: string): Promise<number> {
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_current_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch current supply: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch current supply: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const supply = parseInt(data[0] || '0', 10)
+    console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply}`)
+    return supply
+  } catch (error) {
+    console.error('❌ Error getting current supply:', error)
+    throw error // Re-throw so caller can handle it
+  }
+}
+
+/**
+ * Get total supply of a token
+ */
+export async function getTotalSupply(creatorAddress: string, tokenId: string): Promise<number> {
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_total_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
+      })
+    })
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error(`❌ Failed to fetch total supply: ${response.status} ${errorText}`)
+      throw new Error(`Failed to fetch total supply: ${response.status}`)
+    }
+
+    const data = await response.json()
+    const totalSupply = parseInt(data[0] || '0', 10)
+    console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply}`)
+    return totalSupply
+  } catch (error) {
+    console.error('❌ Error getting total supply:', error)
+    throw error // Re-throw so caller can handle it
+  }
+}
+
+/**
+ * Get APT reserve for a token
+ */
+export async function getAptReserve(creatorAddress: string, tokenId: string): Promise<number> {
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_apt_reserve`,
+        type_arguments: [],
+        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch APT reserve')
+    }
+
+    const data = await response.json()
+    // Convert octas to APT (1 APT = 100000000 octas)
+    const octas = parseInt(data[0] || '0', 10)
+    return octas / 100000000
+  } catch (error) {
+    console.error('❌ Error getting APT reserve:', error)
+    return 0
+  }
+}
+
+/**
+ * Get metadata address for a token
+ */
+export async function getMetadataAddress(creatorAddress: string): Promise<string> {
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_metadata_address`,
+        type_arguments: [],
+        arguments: [creatorAddress]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch metadata address')
+    }
+
+    const data = await response.json()
+    return data[0] || creatorAddress
+  } catch (error) {
+    console.error('❌ Error getting metadata address:', error)
+    return creatorAddress
+  }
+}
