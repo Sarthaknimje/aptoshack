@@ -587,13 +587,19 @@ const TradingMarketplace: React.FC = () => {
           }
           
           // Additional safety check: ensure new supply won't exceed total
+          // Add safety margin to account for rounding differences between frontend and contract
+          const safetyMargin = 1 // 1 token buffer
           const newSupplyAfterTrade = currentSupply + estimatedTokensFromContract
-          if (newSupplyAfterTrade > totalSupply) {
+          const maxAllowedSupply = totalSupply - safetyMargin
+          
+          if (newSupplyAfterTrade > maxAllowedSupply) {
+            const maxTokensCanBuy = availableSupply - safetyMargin
             setTradeError(
               `Transaction would exceed total supply! ` +
               `Current: ${currentSupply.toFixed(0)}, ` +
               `Would mint: ${estimatedTokensFromContract.toFixed(0)}, ` +
               `Total: ${totalSupply.toFixed(0)}. ` +
+              `Maximum you can buy: ${maxTokensCanBuy.toFixed(0)} tokens. ` +
               `Please reduce your amount.`
             )
             setIsProcessing(false)
@@ -736,13 +742,18 @@ const TradingMarketplace: React.FC = () => {
             console.log(`[Final Supply Check] Estimated tokens: ${estimatedTokensFromContract}`)
             
             // Check if this would exceed total supply
+            // Add safety margin: ensure we have at least 1 token buffer to account for rounding differences
             const newSupplyAfterTrade = currentSupply + estimatedTokensFromContract
+            const safetyMargin = 1 // 1 token buffer for rounding differences
+            const maxAllowedSupply = totalSupply - safetyMargin
+            
             console.log(`[Final Supply Check] Estimated tokens to mint: ${estimatedTokensFromContract}`)
             console.log(`[Final Supply Check] New supply after trade: ${newSupplyAfterTrade}`)
             console.log(`[Final Supply Check] Total supply limit: ${totalSupply}`)
+            console.log(`[Final Supply Check] Max allowed supply (with safety margin): ${maxAllowedSupply}`)
             
-            if (newSupplyAfterTrade > totalSupply) {
-              const maxTokensCanBuy = availableSupply
+            if (newSupplyAfterTrade > maxAllowedSupply) {
+              const maxTokensCanBuy = availableSupply - safetyMargin
               const maxAptCanSpend = currentSupply === 0 
                 ? (maxTokensCanBuy * 0.00001)
                 : (maxTokensCanBuy * (aptReserve / currentSupply))
@@ -765,7 +776,9 @@ const TradingMarketplace: React.FC = () => {
             }
             
             // Calculate min tokens for slippage protection (90% of estimated)
-            const minTokensReceived = Math.floor(estimatedTokensFromContract * 0.9)
+            // But ensure it doesn't exceed available supply
+            const maxMinTokens = Math.min(estimatedTokensFromContract, availableSupply - safetyMargin)
+            const minTokensReceived = Math.floor(maxMinTokens * 0.9)
             
             console.log(`[Final Supply Check] ✅ Proceeding - Min tokens: ${minTokensReceived}, Max available: ${availableSupply}`)
             
