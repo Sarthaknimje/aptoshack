@@ -416,7 +416,9 @@ const MultiPlatformTokenization: React.FC = () => {
         // Include Shelby info if available
         shelbyBlobUrl: premiumContentUrl,
         shelbyBlobId: premiumContentBlobId,
-        shelbyExplorerUrl: premiumContentBlobId ? `https://explorer.shelby.xyz/shelbynet/blob/${premiumContentBlobId}` : null
+        shelbyExplorerUrl: premiumContentExplorerUrl || (premiumContentAccountAddress && premiumContentBlobId 
+          ? `https://explorer.shelby.xyz/shelbynet/account/${premiumContentAccountAddress}/blobs?name=${encodeURIComponent(premiumContentBlobId)}`
+          : null)
       }
       
       setSuccessData(successDataObj)
