@@ -55,6 +55,12 @@ interface Prediction {
   no_odds?: number
   time_remaining_hours?: number
   thumbnail?: string
+  all_metrics?: {
+    views?: number
+    likes?: number
+    comments?: number
+    shares?: number
+  }
 }
 
 const BACKEND_URL = 'http://localhost:5001'
@@ -222,7 +228,7 @@ const PredictionMarket: React.FC = () => {
                   // Thumbnail fetch failed, continue without it
                 }
                 
-                // Check if target is met - auto-resolve
+                // Check if target is met - auto-resolve (this will trigger automatic payouts)
                 if (pred.current_value >= pred.target_value && (pred.status === 'active' || pred.status === 'resolving')) {
                   try {
                     const resolveRes = await fetch(`${BACKEND_URL}/api/predictions/${p.prediction_id}/resolve`, {
@@ -231,6 +237,10 @@ const PredictionMarket: React.FC = () => {
                     })
                     const resolveData = await resolveRes.json()
                     if (resolveData.success) {
+                      // Automatic payouts are sent by backend when resolving
+                      if (resolveData.prediction?.automatic_payouts > 0) {
+                        console.log(`✅ Automatic payouts sent: ${resolveData.prediction.automatic_payouts} winners paid`)
+                      }
                       setTimeout(fetchPredictions, 2000)
                     }
                   } catch (e) {
@@ -512,8 +522,12 @@ const PredictionMarket: React.FC = () => {
             Predict <span className="bg-gradient-to-r from-violet-400 to-fuchsia-400 bg-clip-text text-transparent">Social Metrics</span>
           </h1>
           <p className="text-gray-400 text-xl max-w-2xl mx-auto mb-6">
-            Trade on whether content will reach target metrics. Real-time odds, automatic payouts.
+            Trade on whether content will reach target metrics. Real-time metrics, automatic payouts.
           </p>
+          <div className="flex items-center justify-center gap-2 text-sm text-gray-500">
+            <Activity className="w-4 h-4 animate-pulse" />
+            <span>Live metrics update every 10 seconds</span>
+          </div>
           {!isConnected && (
             <motion.button
               whileHover={{ scale: 1.05 }}
@@ -744,6 +758,44 @@ const PredictionMarket: React.FC = () => {
                   </span>
                 </div>
 
+                {/* All Real-Time Metrics */}
+                {prediction.all_metrics && (
+                  <div className="grid grid-cols-2 gap-2 mb-3 p-2 bg-white/5 rounded-lg border border-white/10">
+                    {prediction.all_metrics.views !== undefined && prediction.all_metrics.views > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <Eye className="w-3 h-3 text-blue-400" />
+                        <span className="text-xs text-gray-300">
+                          <span className="text-gray-400">Views:</span> {formatNumber(prediction.all_metrics.views)}
+                        </span>
+                      </div>
+                    )}
+                    {prediction.all_metrics.likes !== undefined && prediction.all_metrics.likes > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <Heart className="w-3 h-3 text-red-400" />
+                        <span className="text-xs text-gray-300">
+                          <span className="text-gray-400">Likes:</span> {formatNumber(prediction.all_metrics.likes)}
+                        </span>
+                      </div>
+                    )}
+                    {prediction.all_metrics.comments !== undefined && prediction.all_metrics.comments > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <MessageCircle className="w-3 h-3 text-green-400" />
+                        <span className="text-xs text-gray-300">
+                          <span className="text-gray-400">Comments:</span> {formatNumber(prediction.all_metrics.comments)}
+                        </span>
+                      </div>
+                    )}
+                    {prediction.all_metrics.shares !== undefined && prediction.all_metrics.shares > 0 && (
+                      <div className="flex items-center gap-1.5">
+                        <Share2 className="w-3 h-3 text-purple-400" />
+                        <span className="text-xs text-gray-300">
+                          <span className="text-gray-400">Shares:</span> {formatNumber(prediction.all_metrics.shares)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Progress Bar - Compact */}
                 <div className="mb-3">
                   <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden">
@@ -788,12 +840,31 @@ const PredictionMarket: React.FC = () => {
 
                 {/* Outcome or Time */}
                 {prediction.status === 'resolved' ? (
-                  <div className={`mb-2 p-2 rounded-lg text-center text-xs font-semibold ${
-                    prediction.outcome === 'YES' 
-                      ? 'bg-green-500/20 text-green-400' 
-                      : 'bg-red-500/20 text-red-400'
-                  }`}>
-                    {prediction.outcome === 'YES' ? '✅ YES Won' : '❌ NO Won'} • Final: {formatNumber(prediction.final_value || 0)}
+                  <div className="mb-2 space-y-1">
+                    <div className={`p-2 rounded-lg text-center text-xs font-semibold ${
+                      prediction.outcome === 'YES' 
+                        ? 'bg-green-500/20 text-green-400' 
+                        : 'bg-red-500/20 text-red-400'
+                    }`}>
+                      {prediction.outcome === 'YES' ? '✅ YES Won' : '❌ NO Won'} • Final: {formatNumber(prediction.final_value || 0)}
+                    </div>
+                    {(() => {
+                      const winning = userWinnings.find(w => w.prediction_id === prediction.prediction_id)
+                      if (winning) {
+                        if (winning.claimed || winning.claim_txid) {
+                          return (
+                            <div className="p-1.5 bg-green-500/10 rounded text-xs text-green-400 text-center border border-green-500/20 flex items-center justify-center gap-1">
+                              <Trophy className="w-3 h-3" />
+                              <span>Payout received: {winning.payout_amount?.toFixed(4)} APTOS</span>
+                              {winning.claim_txid && (
+                                <span className="text-green-300">(Auto-paid)</span>
+                              )}
+                            </div>
+                          )
+                        }
+                      }
+                      return null
+                    })()}
                   </div>
                 ) : (
                   <div className="flex items-center justify-between text-xs text-gray-400 mb-2">
@@ -830,7 +901,8 @@ const PredictionMarket: React.FC = () => {
                 )}
                 {prediction.status === 'resolved' && isConnected && (() => {
                   const winning = userWinnings.find(w => w.prediction_id === prediction.prediction_id)
-                  if (winning && !winning.claimed) {
+                  // Show claim button only if not claimed and no automatic payout
+                  if (winning && !winning.claimed && !winning.claim_txid) {
                     return (
                       <motion.button
                         whileHover={{ scale: 1.02 }}

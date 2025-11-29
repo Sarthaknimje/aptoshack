@@ -4465,8 +4465,9 @@ def get_prediction(prediction_id):
         if not row:
             return jsonify({"success": False, "error": "Prediction not found"}), 404
         
-        # Get current metric value
+        # Get current metric value and all engagement metrics
         current_value = row[12]  # initial_value
+        all_metrics = None  # Will contain all engagement metrics for display
         try:
             scraper = WebScraper()
             if row[3] == 'youtube':  # platform
@@ -4493,6 +4494,14 @@ def get_prediction(prediction_id):
                             current_value = int(stats.get('likeCount', 0))
                         elif row[4] == 'comments':
                             current_value = int(stats.get('commentCount', 0))
+                        
+                        # Store all YouTube metrics
+                        all_metrics = {
+                            'views': int(stats.get('viewCount', 0)),
+                            'likes': int(stats.get('likeCount', 0)),
+                            'comments': int(stats.get('commentCount', 0)),
+                            'shares': 0  # YouTube API doesn't provide shares
+                        }
             else:
                 # Use platform-specific scraping methods
                 content_url = row[2]
@@ -4520,6 +4529,14 @@ def get_prediction(prediction_id):
                         current_value = engagement.get('shares', 0) or engagement.get('reposts', 0) or engagement.get('retweets', 0) or 0
                     else:
                         current_value = engagement.get(metric_type, 0) or engagement.get('likes', 0) or 0
+                    
+                    # Store all engagement metrics for display
+                    all_metrics = {
+                        'likes': engagement.get('likes', 0) or engagement.get('reactions', 0) or 0,
+                        'comments': engagement.get('comments', 0) or engagement.get('replies', 0) or 0,
+                        'views': engagement.get('views', 0) or 0,
+                        'shares': engagement.get('shares', 0) or engagement.get('reposts', 0) or engagement.get('retweets', 0) or 0
+                    }
         except Exception as e:
             logger.warning(f"Could not fetch current value: {e}")
         
@@ -4553,29 +4570,35 @@ def get_prediction(prediction_id):
         
         conn.close()
         
+        prediction_data = {
+            "prediction_id": row[0],
+            "creator_address": row[1],
+            "content_url": row[2],
+            "platform": row[3],
+            "metric_type": row[4],
+            "target_value": row[5],
+            "timeframe_hours": row[6],
+            "end_time": row[7],
+            "yes_pool": yes_pool,
+            "no_pool": no_pool,
+            "status": status,
+            "outcome": row[11],
+            "initial_value": row[12],
+            "final_value": row[13],
+            "created_at": row[14],
+            "current_value": current_value,
+            "yes_odds": round(yes_odds, 2),
+            "no_odds": round(no_odds, 2),
+            "time_remaining_hours": round(time_remaining, 2)
+        }
+        
+        # Add all engagement metrics if available
+        if all_metrics:
+            prediction_data["all_metrics"] = all_metrics
+        
         return jsonify({
             "success": True,
-            "prediction": {
-                "prediction_id": row[0],
-                "creator_address": row[1],
-                "content_url": row[2],
-                "platform": row[3],
-                "metric_type": row[4],
-                "target_value": row[5],
-                "timeframe_hours": row[6],
-                "end_time": row[7],
-                "yes_pool": yes_pool,
-                "no_pool": no_pool,
-                "status": status,
-                "outcome": row[11],
-                "initial_value": row[12],
-                "final_value": row[13],
-                "created_at": row[14],
-                "current_value": current_value,
-                "yes_odds": round(yes_odds, 2),
-                "no_odds": round(no_odds, 2),
-                "time_remaining_hours": round(time_remaining, 2)
-            }
+            "prediction": prediction_data
         })
         
     except Exception as e:
@@ -4992,13 +5015,14 @@ def get_user_winnings(address):
         conn = sqlite3.connect('creatorvault.db')
         cursor = conn.cursor()
         
-        # Get all won trades with pending payouts (not yet claimed)
+        # Get all won trades (both claimed and unclaimed) so users can see automatic payouts
         cursor.execute('''
-            SELECT pt.id, pt.prediction_id, pt.payout_amount, pt.status, pt.claimed,
+            SELECT pt.id, pt.prediction_id, pt.payout_amount, pt.status, pt.claimed, pt.claim_txid,
                    p.content_url, p.platform, p.metric_type, p.outcome
             FROM prediction_trades pt
             JOIN predictions p ON pt.prediction_id = p.prediction_id
-            WHERE pt.trader_address = ? AND pt.status = 'won' AND pt.payout_amount > 0 AND (pt.claimed IS NULL OR pt.claimed = 0)
+            WHERE pt.trader_address = ? AND pt.status = 'won' AND pt.payout_amount > 0
+            ORDER BY pt.claimed ASC, pt.id DESC
         ''', (address,))
         
         winnings = cursor.fetchall()
@@ -5006,13 +5030,14 @@ def get_user_winnings(address):
         
         result = []
         for win in winnings:
-            trade_id, pred_id, payout, status, claimed, content_url, platform, metric, outcome = win
+            trade_id, pred_id, payout, status, claimed, claim_txid, content_url, platform, metric, outcome = win
             result.append({
                 'trade_id': trade_id,
                 'prediction_id': pred_id,
                 'payout_amount': payout,
                 'status': status,
-                'claimed': claimed,
+                'claimed': claimed or 0,  # Ensure it's 0 or 1
+                'claim_txid': claim_txid,  # Transaction ID if automatically paid
                 'content_url': content_url,
                 'platform': platform,
                 'metric_type': metric,
