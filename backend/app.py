@@ -4010,7 +4010,7 @@ def get_youtube_videos():
                 ''', ('youtube',))
                 
                 for row in cursor.fetchall():
-                content_id, content_url, token_id, token_name, token_symbol = row
+                    content_id, content_url, token_id, token_name, token_symbol = row
                 # Extract video ID from content_id or content_url
                 video_id = None
                 if content_id:
