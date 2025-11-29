@@ -54,15 +54,31 @@ const ShelbyStorageInfo: React.FC<ShelbyStorageInfoProps> = ({
           </h4>
           
           <div className="space-y-2 text-sm">
-            <div className="flex items-center gap-2 text-gray-300">
-              <Globe className="w-4 h-4 text-blue-400" />
-              <span className="font-mono text-xs break-all">{blobUrl || blobId}</span>
-            </div>
+            {blobUrl && (
+              <div className="flex items-start gap-2 text-gray-300">
+                <Globe className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-gray-400 text-xs">API URL:</span>
+                  <div className="font-mono text-xs break-all bg-black/30 px-2 py-1 rounded mt-1">{blobUrl}</div>
+                </div>
+              </div>
+            )}
             
-            {blobId && (
+            {blobName && (
               <div className="flex items-center gap-2 text-gray-300">
                 <Shield className="w-4 h-4 text-green-400" />
-                <span>Blob ID: <span className="font-mono text-xs">{blobId}</span></span>
+                <span className="text-gray-400">Blob Name:</span>
+                <span className="font-mono text-xs bg-black/30 px-2 py-1 rounded">{blobName}</span>
+              </div>
+            )}
+            
+            {accountAddress && (
+              <div className="flex items-center gap-2 text-gray-300">
+                <Database className="w-4 h-4 text-purple-400" />
+                <span className="text-gray-400">Account:</span>
+                <span className="font-mono text-xs bg-black/30 px-2 py-1 rounded">
+                  {accountAddress.slice(0, 10)}...{accountAddress.slice(-8)}
+                </span>
               </div>
             )}
             
@@ -84,15 +100,20 @@ const ShelbyStorageInfo: React.FC<ShelbyStorageInfoProps> = ({
             </div>
             
             {shelbyExplorerUrl && (
-              <a
-                href={shelbyExplorerUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 mt-3 px-3 py-1.5 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 rounded-lg text-blue-300 text-xs transition-colors"
-              >
-                <ExternalLink className="w-3 h-3" />
-                View on Shelby Explorer
-              </a>
+              <div className="mt-3 space-y-2">
+                <a
+                  href={shelbyExplorerUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 rounded-lg text-blue-300 text-sm font-semibold transition-colors w-full justify-center"
+                >
+                  <ExternalLink className="w-4 h-4" />
+                  View on Shelby Explorer
+                </a>
+                <p className="text-xs text-gray-400 text-center">
+                  Content is publicly visible on Shelby Protocol
+                </p>
+              </div>
             )}
           </div>
         </div>

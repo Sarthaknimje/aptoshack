@@ -1091,6 +1091,15 @@ const TradingMarketplace: React.FC = () => {
                 updatedReserve / 100000000 // Convert octas to APT
               )
               console.log('✅ Synced buy trade to backend')
+              
+              // Refresh token balance and premium access after successful buy
+              if (tokenData?.content_id || tokenData?.token_id) {
+                setTimeout(() => {
+                  fetchUserTokenBalance(tokenData.content_id || tokenData.token_id || '')
+                  // Trigger premium content access check refresh
+                  window.dispatchEvent(new CustomEvent('tokenBalanceUpdated'))
+                }, 2000) // Wait 2 seconds for blockchain to update
+              }
             } catch (syncError) {
               console.warn('⚠️ Failed to sync buy trade to backend (non-critical):', syncError)
               // Don't fail the transaction if sync fails
@@ -1140,12 +1149,15 @@ const TradingMarketplace: React.FC = () => {
         const creatorAddress = tokenData.creator || '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6'
         
         // Try to use contract to sell tokens, fallback to backend service
+        // Use the same tokenId (content_id) as buy for consistency
+        console.log(`[Sell] Using tokenId: ${tokenId} (content_id: ${tokenData.content_id}, token_id: ${tokenData.token_id}, asa_id: ${tokenData.asa_id})`)
+        
         try {
           const sellResult = await sellTokensWithContract({
             seller: address!,
             petraWallet: petraWallet,
             creatorAddress: creatorAddress,
-            tokenId: tokenId, // content_id
+            tokenId: tokenId, // content_id - same identifier as buy
             tokenAmount: tradeAmount,
             minAptReceived: minAptReceived
           })
@@ -1170,6 +1182,15 @@ const TradingMarketplace: React.FC = () => {
               updatedReserve / 100000000 // Convert octas to APT
             )
             console.log('✅ Synced sell trade to backend')
+            
+            // Refresh token balance and premium access after successful sell
+            if (tokenData?.content_id || tokenData?.token_id) {
+              setTimeout(() => {
+                fetchUserTokenBalance(tokenData.content_id || tokenData.token_id || '')
+                // Trigger premium content access check refresh
+                window.dispatchEvent(new CustomEvent('tokenBalanceUpdated'))
+              }, 2000) // Wait 2 seconds for blockchain to update
+            }
           } catch (syncError) {
             console.warn('⚠️ Failed to sync sell trade to backend (non-critical):', syncError)
             // Don't fail the transaction if sync fails
@@ -2180,6 +2201,8 @@ const TradingMarketplace: React.FC = () => {
               blobUrl={tokenData.premium_content_url}
               blobId={tokenData.premium_content_blob_id}
               blobName={tokenData.premium_content_blob_id} // blob_id is actually the blob name
+              accountAddress={tokenData.premium_content_account_address || '0x815d4e93e2eaad3680be8583d95352fb6b2f3858c39a37aca906eae26a09b18f'} // Default Shelby account
+              explorerUrl={tokenData.premium_content_explorer_url}
               contentType={tokenData.premium_content_type || 'video'}
             />
             </div>

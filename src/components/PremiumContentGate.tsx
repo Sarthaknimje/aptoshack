@@ -49,8 +49,18 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
     const interval = setInterval(() => {
       checkAccess()
     }, 10000) // Check every 10 seconds
+    
+    // Listen for token balance updates (after buy/sell)
+    const handleTokenBalanceUpdate = () => {
+      console.log('🔄 Token balance updated, refreshing premium access...')
+      checkAccess()
+    }
+    window.addEventListener('tokenBalanceUpdated', handleTokenBalanceUpdate)
 
-    return () => clearInterval(interval)
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('tokenBalanceUpdated', handleTokenBalanceUpdate)
+    }
   }, [isConnected, address, tokenData, premiumContentUrl])
 
   const checkAccess = async () => {
