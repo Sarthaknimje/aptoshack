@@ -256,14 +256,46 @@ const MultiPlatformTokenization: React.FC = () => {
       // Upload premium content to Shelby if provided
       if (premiumContent) {
         try {
+          console.log(`📤 Uploading premium content to Shelby Protocol...`)
+          console.log(`   File: ${premiumContent.name} (${premiumContent.type || 'unknown type'})`)
+          console.log(`   Size: ${(premiumContent.size / 1024 / 1024).toFixed(2)} MB`)
+          
           const { uploadPremiumContent } = await import('../services/shelbyService')
           const blobName = `premium_${tokenSymbol}_${Date.now()}`
+          
+          console.log(`   Blob Name: ${blobName}`)
+          
           const uploadResult = await uploadPremiumContent(premiumContent, blobName, 365)
           premiumContentUrl = uploadResult.blobUrl
           premiumContentBlobId = uploadResult.blobId
-          console.log(`✅ Premium content uploaded to Shelby: ${premiumContentUrl}`)
+          
+          // Detailed console logging
+          console.log(`\n✅ ========================================`)
+          console.log(`✅ Premium Content Uploaded to Shelby!`)
+          console.log(`✅ ========================================`)
+          console.log(`   📦 File: ${premiumContent.name}`)
+          console.log(`   🔗 Blob URL: ${premiumContentUrl}`)
+          console.log(`   🆔 Blob ID: ${premiumContentBlobId}`)
+          console.log(`   📅 Expires: ${uploadResult.expirationDate.toISOString()}`)
+          console.log(`   🌐 Network: shelbynet`)
+          console.log(`   🔍 Explorer: https://explorer.shelby.xyz/shelbynet/blob/${premiumContentBlobId}`)
+          console.log(`   📡 RPC: https://api.shelbynet.shelby.xyz/shelby`)
+          console.log(`✅ ========================================\n`)
+          
+          // Store Shelby info for later display
+          window.shelbyUploadInfo = {
+            blobUrl: premiumContentUrl,
+            blobId: premiumContentBlobId,
+            explorerUrl: `https://explorer.shelby.xyz/shelbynet/blob/${premiumContentBlobId}`,
+            fileName: premiumContent.name
+          }
         } catch (uploadError) {
-          console.warn('⚠️ Failed to upload premium content to Shelby:', uploadError)
+          console.error('❌ ========================================')
+          console.error('❌ Failed to upload premium content to Shelby')
+          console.error('❌ ========================================')
+          console.error('   Error:', uploadError)
+          console.error('   File:', premiumContent.name)
+          console.error('❌ ========================================\n')
           // Continue with tokenization even if premium content upload fails
         }
       }
@@ -364,7 +396,11 @@ const MultiPlatformTokenization: React.FC = () => {
         transactionId: txId,
         assetId: assetIdStr, // Use string version for display
         content: scrapedContent,
-        message: `Successfully created token ${tokenName} (${tokenSymbol.toUpperCase()})!`
+        message: `Successfully created token ${tokenName} (${tokenSymbol.toUpperCase()})!`,
+        // Include Shelby info if available
+        shelbyBlobUrl: premiumContentUrl,
+        shelbyBlobId: premiumContentBlobId,
+        shelbyExplorerUrl: premiumContentBlobId ? `https://explorer.shelby.xyz/shelbynet/blob/${premiumContentBlobId}` : null
       }
       
       setSuccessData(successDataObj)
@@ -879,6 +915,9 @@ const MultiPlatformTokenization: React.FC = () => {
             transactionId={successData.transactionId}
             assetId={successData.assetId}
             message={successData.message}
+            shelbyBlobUrl={successData.shelbyBlobUrl}
+            shelbyBlobId={successData.shelbyBlobId}
+            shelbyExplorerUrl={successData.shelbyExplorerUrl}
           />
         )}
       </div>
@@ -939,8 +978,25 @@ const TokenizeModal: React.FC<TokenizeModalProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    // Clear previous upload info
+    setShelbyUploadInfo(null)
     onTokenize(tokenName, tokenSymbol, parseInt(totalSupply), premiumContent || undefined, premiumContentType)
   }
+  
+  // Listen for Shelby upload info from parent component
+  useEffect(() => {
+    const checkShelbyInfo = () => {
+      if ((window as any).shelbyUploadInfo) {
+        setShelbyUploadInfo((window as any).shelbyUploadInfo)
+      }
+    }
+    
+    // Check immediately and then periodically
+    checkShelbyInfo()
+    const interval = setInterval(checkShelbyInfo, 500)
+    
+    return () => clearInterval(interval)
+  }, [])
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -1045,12 +1101,56 @@ const TokenizeModal: React.FC<TokenizeModalProps> = ({
                 </div>
               )}
               
-              {premiumContent && (
+              {premiumContent && !shelbyUploadInfo && (
                 <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
                   <p className="text-xs text-yellow-200">
                     ✓ {premiumContent.name} ({premiumContentType}) will be uploaded to Shelby Protocol
                   </p>
                 </div>
+              )}
+              
+              {shelbyUploadInfo && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 bg-green-500/10 border border-green-500/30 rounded-xl space-y-2"
+                >
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="w-5 h-5 text-green-400 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-green-200 mb-2">
+                        ✅ Uploaded to Shelby Protocol!
+                      </p>
+                      <div className="space-y-1.5 text-xs text-gray-300">
+                        <div className="flex items-start gap-2">
+                          <span className="text-gray-400 min-w-[60px]">Blob URL:</span>
+                          <code className="bg-black/30 px-2 py-1 rounded text-green-300 break-all flex-1">
+                            {shelbyUploadInfo.blobUrl || shelbyUploadInfo.blobId}
+                          </code>
+                        </div>
+                        {shelbyUploadInfo.blobId && (
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-400 min-w-[60px]">Blob ID:</span>
+                            <code className="bg-black/30 px-2 py-1 rounded text-cyan-300">
+                              {shelbyUploadInfo.blobId}
+                            </code>
+                          </div>
+                        )}
+                        {shelbyUploadInfo.explorerUrl && (
+                          <a
+                            href={shelbyUploadInfo.explorerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 mt-2 text-blue-400 hover:text-blue-300 underline"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                            View on Shelby Explorer
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
               )}
             </div>
           </div>

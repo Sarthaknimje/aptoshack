@@ -29,6 +29,10 @@ interface TokenSuccessModalProps {
   transactionId?: string
   assetId?: number
   message?: string
+  // Shelby premium content info
+  shelbyBlobUrl?: string
+  shelbyBlobId?: string
+  shelbyExplorerUrl?: string
 }
 
 export const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
@@ -40,7 +44,10 @@ export const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
   totalSupply,
   transactionId,
   assetId,
-  message
+  message,
+  shelbyBlobUrl,
+  shelbyBlobId,
+  shelbyExplorerUrl
 }) => {
   if (!isOpen) return null
 
@@ -198,6 +205,53 @@ export const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
               <div className="bg-green-500/20 border border-green-500/50 rounded-xl p-4 text-center">
                 <p className="text-green-200 text-sm">{message}</p>
               </div>
+            )}
+            
+            {/* Shelby Premium Content Info */}
+            {(shelbyBlobUrl || shelbyBlobId) && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="p-2 bg-blue-500/20 rounded-lg">
+                    <Database className="w-5 h-5 text-blue-400" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-white font-semibold mb-2 text-sm">Premium Content Stored on Shelby</h4>
+                    <div className="space-y-1 text-xs">
+                      {shelbyBlobUrl && (
+                        <div className="flex items-center gap-2 text-gray-300">
+                          <span className="text-gray-400">URL:</span>
+                          <code className="bg-black/30 px-2 py-1 rounded text-green-300 break-all text-[10px]">
+                            {shelbyBlobUrl}
+                          </code>
+                        </div>
+                      )}
+                      {shelbyBlobId && (
+                        <div className="flex items-center gap-2 text-gray-300">
+                          <span className="text-gray-400">Blob ID:</span>
+                          <code className="bg-black/30 px-2 py-1 rounded text-cyan-300 text-[10px]">
+                            {shelbyBlobId}
+                          </code>
+                        </div>
+                      )}
+                      {shelbyExplorerUrl && (
+                        <a
+                          href={shelbyExplorerUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 mt-2 text-blue-400 hover:text-blue-300 underline text-xs"
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          View on Shelby Explorer
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
             )}
           </motion.div>
 
