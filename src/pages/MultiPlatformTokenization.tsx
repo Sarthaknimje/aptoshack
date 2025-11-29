@@ -252,12 +252,36 @@ const MultiPlatformTokenization: React.FC = () => {
       const actualSupply = totalSupply >= 1000000 ? totalSupply : 1000000
       
       // Use content ID as token_id (unique identifier for this token)
-      const tokenId = scrapedContent.id || scrapedContent.url // Fallback to URL if no ID
+      // Extract proper content_id based on platform
+      let tokenId = scrapedContent.id
       
+      // If no ID, extract from URL
+      if (!tokenId && scrapedContent.url) {
+        if (selectedPlatform === 'instagram') {
+          const reelMatch = scrapedContent.url.match(/\/reels?\/([A-Za-z0-9_-]+)/)
+          tokenId = reelMatch ? reelMatch[1] : scrapedContent.url
+        } else if (selectedPlatform === 'twitter' || selectedPlatform === 'x') {
+          const tweetMatch = scrapedContent.url.match(/\/status\/(\d+)/)
+          tokenId = tweetMatch ? tweetMatch[1] : scrapedContent.url
+        } else if (selectedPlatform === 'linkedin') {
+          const postMatch = scrapedContent.url.match(/activity-(\d+)/) || scrapedContent.url.match(/\/posts\/([^/?]+)/)
+          tokenId = postMatch ? postMatch[1] : scrapedContent.url
+        } else {
+          tokenId = scrapedContent.url
+        }
+      }
+      
+      if (!tokenId) {
+        throw new Error('Could not extract content ID. Please check the URL and try again.')
+      }
+      
+      console.log(`[Tokenization] Using tokenId (content_id): ${tokenId} for platform: ${selectedPlatform}`)
+      
+      // Create token using new smart contract via Petra wallet
       const { txId, assetId } = await createASAWithPetra({
         sender: address,
         petraWallet: petraWallet,
-        tokenId: tokenId, // content_id (video_id, tweet_id, LinkedIn post ID, etc.)
+        tokenId: tokenId, // content_id (video_id, tweet_id, LinkedIn post ID, etc.) - used as unique identifier
         assetName: tokenName,
         unitName: tokenSymbol.toUpperCase(),
         totalSupply: actualSupply, // Pass the calculated total supply
@@ -274,8 +298,9 @@ const MultiPlatformTokenization: React.FC = () => {
       const assetIdNum = typeof assetId === 'bigint' ? Number(assetId) : Number(assetId)
 
       console.log(`✅ Token created: ${tokenName} (${tokenSymbol}) - Asset ID: ${assetIdStr}, TX: ${txId}`)
+      console.log(`✅ TokenId (content_id) used in contract: ${tokenId}`)
 
-      // Save to backend
+      // Save to backend - ensure content_id matches tokenId used in contract
       const response = await fetch('http://localhost:5001/create-creator-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -285,11 +310,11 @@ const MultiPlatformTokenization: React.FC = () => {
           token_symbol: tokenSymbol.toUpperCase(),
           total_supply: totalSupply,
           transaction_id: txId,
-          asset_id: assetIdNum, // Convert to number for backend
+          asset_id: assetIdNum, // metadata_address from contract
           initial_price: 0.01,
-          description: scrapedContent.description || `Tokenized ${scrapedContent.platform} content`,
-          platform: scrapedContent.platform,
-          content_id: scrapedContent.id,
+          description: scrapedContent.description || `Tokenized ${scrapedContent.platform || selectedPlatform} content`,
+          platform: scrapedContent.platform || selectedPlatform,
+          content_id: tokenId, // Use same tokenId as contract (critical for buy/sell operations)
           content_url: scrapedContent.url,
           content_thumbnail: scrapedContent.thumbnailUrl || ''
         })
