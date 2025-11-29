@@ -193,14 +193,25 @@ export class TradingService {
    * Get trade history for a token
    */
   static async getTradeHistory(
-    asaId: number,
+    tokenId: number | string,
     timeframe: '1h' | '24h' | '7d' | '30d' = '24h',
     limit: number = 100
   ): Promise<any[]> {
     try {
+      // Use token_id for Aptos tokens (string) or asa_id for legacy (number)
+      const id = typeof tokenId === 'string' ? tokenId : tokenId.toString()
       const response = await fetch(
-        `${BACKEND_URL}/api/trades/${asaId}?timeframe=${timeframe}&limit=${limit}`
+        `${BACKEND_URL}/api/trades/${id}?timeframe=${timeframe}&limit=${limit}`
       )
+      
+      if (!response.ok) {
+        // If 404, return empty array (no trades yet)
+        if (response.status === 404) {
+          return []
+        }
+        throw new Error(`HTTP ${response.status}`)
+      }
+      
       const result = await response.json()
       if (result.success) {
         return result.trades || []

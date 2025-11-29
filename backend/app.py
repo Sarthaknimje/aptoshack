@@ -1730,16 +1730,27 @@ def get_tokens():
             "error": str(e)
         }), 500
 
-@app.route('/api/trades/<int:asa_id>', methods=['GET'])
+@app.route('/api/trades/<token_identifier>', methods=['GET'])
 @handle_errors
-def get_trades(asa_id):
-    """Get trade history for a specific token"""
+def get_trades(token_identifier):
+    """Get trade history for a specific token (supports both asa_id int and token_id string)"""
     try:
         timeframe = request.args.get('timeframe', '24h')
         limit = int(request.args.get('limit', 100))
         
         conn = sqlite3.connect('creatorvault.db')
         cursor = conn.cursor()
+        
+        # Try to parse as integer (legacy asa_id) or use as string (Aptos token_id)
+        try:
+            asa_id_int = int(token_identifier)
+            # Use asa_id for legacy tokens
+            token_query = 'asa_id = ?'
+            query_param = asa_id_int
+        except ValueError:
+            # Use token_id for Aptos tokens (metadata address)
+            token_query = 'token_id = ?'
+            query_param = token_identifier
         
         # Calculate time filter
         if timeframe == '1h':
@@ -1753,13 +1764,41 @@ def get_trades(asa_id):
         else:
             time_filter = "datetime('now', '-1 year')"
         
-        cursor.execute(f'''
-            SELECT trade_type, amount, price, created_at, transaction_id, trader_address
-            FROM trades
-            WHERE asa_id = ? AND created_at >= {time_filter}
-            ORDER BY created_at DESC
-            LIMIT ?
-        ''', (asa_id, limit))
+        # Check if token_id column exists, otherwise fallback to asa_id
+        try:
+            cursor.execute(f'''
+                SELECT trade_type, amount, price, created_at, transaction_id, trader_address
+                FROM trades
+                WHERE {token_query} AND created_at >= {time_filter}
+                ORDER BY created_at DESC
+                LIMIT ?
+            ''', (query_param, limit))
+        except sqlite3.OperationalError:
+            # Fallback: if token_id column doesn't exist, try asa_id
+            if token_query == 'token_id = ?':
+                # Try to find token by token_id in tokens table, then use its asa_id
+                cursor.execute('SELECT asa_id FROM tokens WHERE token_id = ?', (token_identifier,))
+                token_row = cursor.fetchone()
+                if token_row:
+                    asa_id_from_token = token_row[0]
+                    cursor.execute(f'''
+                        SELECT trade_type, amount, price, created_at, transaction_id, trader_address
+                        FROM trades
+                        WHERE asa_id = ? AND created_at >= {time_filter}
+                        ORDER BY created_at DESC
+                        LIMIT ?
+                    ''', (asa_id_from_token, limit))
+                else:
+                    # No token found, return empty
+                    trades = []
+                    conn.close()
+                    return jsonify({
+                        "success": True,
+                        "trades": [],
+                        "count": 0
+                    })
+            else:
+                raise
         
         trades = []
         for row in cursor.fetchall():

@@ -442,6 +442,33 @@ export async function getCurrentSupply(creatorAddress: string): Promise<number> 
 }
 
 /**
+ * Get total supply of a token
+ */
+export async function getTotalSupply(creatorAddress: string): Promise<number> {
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${MODULE_ADDRESS}::creator_token::get_total_supply`,
+        type_arguments: [],
+        arguments: [creatorAddress]
+      })
+    })
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch total supply')
+    }
+
+    const data = await response.json()
+    return parseInt(data[0] || '0', 10)
+  } catch (error) {
+    console.error('❌ Error getting total supply:', error)
+    return 0
+  }
+}
+
+/**
  * Get metadata address for a token
  */
 export async function getMetadataAddress(creatorAddress: string): Promise<string> {

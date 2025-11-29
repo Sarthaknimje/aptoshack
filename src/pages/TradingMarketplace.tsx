@@ -38,7 +38,7 @@ import {
 import { useWallet } from '../contexts/WalletContext'
 import { PetraWalletIcon, YouTubeIcon, InstagramIcon, TwitterIcon, LinkedInIcon } from '../assets/icons'
 import { TradingService, TradeEstimate } from '../services/tradingService'
-import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract, getTokenBalance } from '../services/petraWalletService'
+import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract, getTokenBalance, getCurrentSupply, getTotalSupply } from '../services/petraWalletService'
 import TradeSuccessModal from '../components/TradeSuccessModal'
 import ConfettiAnimation from '../components/ConfettiAnimation'
 import BondingCurveChart from '../components/BondingCurveChart'
@@ -201,9 +201,12 @@ const TradingMarketplace: React.FC = () => {
   }, [symbol])
 
   // Fetch real trade history for charts
-  const fetchTradeHistory = async (asaId: number) => {
+  const fetchTradeHistory = async (tokenId: number | string) => {
     try {
-      const trades = await TradingService.getTradeHistory(asaId, '24h', 200)
+      // For Aptos tokens, use token_id (string) instead of asa_id (number)
+      // Convert to string if it's a number to avoid scientific notation
+      const id = typeof tokenId === 'string' ? tokenId : tokenId.toString()
+      const trades = await TradingService.getTradeHistory(id, '24h', 200)
       
       // Convert trades to chart data
       const chartDataPoints: ChartDataPoint[] = trades.map((trade: any) => {
@@ -460,6 +463,28 @@ const TradingMarketplace: React.FC = () => {
         setTradeError(`Invalid trade estimate. Cost: ${estimate.algo_cost || 'N/A'} APTOS. Please try again.`)
         setIsProcessing(false)
         return
+      }
+      
+      // Check available supply from contract
+      if (tokenData?.creator) {
+        try {
+          const currentSupply = await getCurrentSupply(tokenData.creator)
+          const totalSupply = await getTotalSupply(tokenData.creator)
+          const availableSupply = totalSupply - currentSupply
+          
+          if (tradeAmount > availableSupply) {
+            setTradeError(
+              `Insufficient token supply! Available: ${availableSupply.toFixed(2)} tokens, ` +
+              `but you're trying to buy ${tradeAmount.toFixed(2)} tokens. ` +
+              `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}`
+            )
+            setIsProcessing(false)
+            return
+          }
+        } catch (error) {
+          console.error('Error checking token supply:', error)
+          // Continue with trade if supply check fails
+        }
       }
       
       // Aptos requires minimum balance for transactions
