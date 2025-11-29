@@ -270,40 +270,16 @@ const TradingMarketplace: React.FC = () => {
     }
 
     try {
-      // Get creator address from token data
-      if (!tokenData?.creator) {
-        // Try to get from backend
-        const response = await fetch(`http://localhost:5001/tokens`)
-        const result = await response.json()
-        if (result.success) {
-          const token = result.tokens.find((t: any) => t.asa_id === asaId || t.token_id === asaId)
-          if (token?.creator) {
-            // Get tokenId (content_id) from token
-            const tokenId = token.content_id || token.token_id || String(token.asa_id || '')
-            if (!tokenId) {
-              console.warn('No tokenId found for token, skipping balance fetch')
-              setUserTokenBalance(0)
-          return
-            }
-            
-            const balance = await getTokenBalance(token.creator, tokenId, address)
-          setUserTokenBalance(balance)
-          return
-        }
-        }
+      // For Aptos tokens, we need creator address and token_id (content_id)
+      // Get tokenId (content_id) from tokenData - this is what the contract expects
+      const tokenId = tokenData.content_id || tokenData.token_id
+      if (!tokenId || !tokenData.creator) {
+        console.warn('Missing tokenId (content_id) or creator address in tokenData')
         setUserTokenBalance(0)
-          return
-      }
-      
-      // Fetch balance from contract
-      // Get tokenId (content_id) from tokenData
-      const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
-      if (!tokenId) {
-        console.warn('No tokenId found in tokenData, cannot fetch balance')
-      setUserTokenBalance(0)
         return
       }
       
+      // Fetch balance from Aptos contract
       const balance = await getTokenBalance(tokenData.creator, tokenId, address)
       setUserTokenBalance(balance)
     } catch (error) {
