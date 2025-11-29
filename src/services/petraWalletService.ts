@@ -259,7 +259,33 @@ export async function buyTokensWithContract({
       }
     } catch (error: any) {
       console.error('❌ Error buying tokens:', error)
-      throw error
+      
+      // Extract detailed error message from PetraApiError
+      let errorMessage = 'Transaction failed'
+      if (error?.message) {
+        errorMessage = error.message
+      } else if (error?.info) {
+        errorMessage = error.info
+      } else if (error?.code) {
+        errorMessage = `Error code: ${error.code}`
+      } else if (typeof error === 'string') {
+        errorMessage = error
+      }
+      
+      // Check for specific error types
+      if (errorMessage.includes('E_INSUFFICIENT_BALANCE') || errorMessage.includes('0x10002')) {
+        errorMessage = 'Insufficient token supply. The transaction would exceed the total supply limit.'
+      } else if (errorMessage.includes('E_INSUFFICIENT_PAYMENT') || errorMessage.includes('0x10003')) {
+        errorMessage = 'Slippage protection: You would receive fewer tokens than expected. Please try again.'
+      } else if (errorMessage.includes('INSUFFICIENT_BALANCE_FOR_TRANSACTION_FEE')) {
+        errorMessage = 'Insufficient APT balance for transaction fees. Please add more APT to your wallet.'
+      } else if (errorMessage.includes('rejected') || errorMessage.includes('User rejected')) {
+        errorMessage = 'Transaction was rejected. Please approve the transaction in your wallet.'
+      }
+      
+      const detailedError = new Error(errorMessage)
+      detailedError.name = error?.name || 'PetraApiError'
+      throw detailedError
     }
   })
 }

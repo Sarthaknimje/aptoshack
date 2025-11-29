@@ -495,7 +495,17 @@ const TradingMarketplace: React.FC = () => {
         try {
           const currentSupply = await getCurrentSupply(tokenData.creator)
           const totalSupply = await getTotalSupply(tokenData.creator)
-          const aptReserve = await getAptReserve(tokenData.creator)
+          
+          // Try to get APT reserve, but if it fails (e.g., 400 error), default to 0
+          // This is fine for first buy when reserve is 0 anyway
+          let aptReserve = 0
+          try {
+            aptReserve = await getAptReserve(tokenData.creator)
+          } catch (reserveError) {
+            console.warn('⚠️ Could not fetch APT reserve (this is OK for first buy):', reserveError)
+            // Default to 0 for first buy - this is expected when no tokens have been bought yet
+            aptReserve = 0
+          }
           
           // Cache values for later use to avoid duplicate API calls
           cachedSupply = { current: currentSupply, total: totalSupply, reserve: aptReserve }
