@@ -3995,13 +3995,13 @@ def get_youtube_videos():
             else:
                 channel = channels_response['items'][0]
             
-        # Get tokenized videos from database
-        init_db()
-        conn = sqlite3.connect('creatorvault.db')
-        cursor = conn.cursor()
-        
-        tokenized_videos = {}
-        try:
+            # Get tokenized videos from database
+            init_db()
+            conn = sqlite3.connect('creatorvault.db')
+            cursor = conn.cursor()
+            
+            tokenized_videos = {}
+            try:
             # Check both content_id and content_url for YouTube videos
             cursor.execute('''
                 SELECT content_id, content_url, token_id, token_name, token_symbol 
@@ -4009,35 +4009,35 @@ def get_youtube_videos():
                 WHERE platform = ? AND (content_id IS NOT NULL OR content_url IS NOT NULL)
         ''', ('youtube',))
         
-        for row in cursor.fetchall():
-                    content_id, content_url, token_id, token_name, token_symbol = row
-            # Extract video ID from content_id or content_url
-            video_id = None
-            if content_id:
-                video_id = content_id
-            elif content_url:
-                # Extract video ID from YouTube URL
-                import re
-                match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})', content_url)
-                if match:
-                    video_id = match.group(1)
-            
-            if video_id:
-                tokenized_videos[video_id] = {
-                            'token_id': token_id,
-                    'token_name': token_name,
-                    'token_symbol': token_symbol
-                }
-            except sqlite3.OperationalError as e:
-                # Table doesn't exist yet or database is empty - this is fine
-                logger.info(f"No tokenized videos found (database may be empty): {e}")
-                tokenized_videos = {}
+            for row in cursor.fetchall():
+                content_id, content_url, token_id, token_name, token_symbol = row
+                # Extract video ID from content_id or content_url
+                video_id = None
+                if content_id:
+                    video_id = content_id
+                elif content_url:
+                    # Extract video ID from YouTube URL
+                    import re
+                    match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})', content_url)
+                    if match:
+                        video_id = match.group(1)
+                
+                if video_id:
+                    tokenized_videos[video_id] = {
+                        'token_id': token_id,
+                        'token_name': token_name,
+                        'token_symbol': token_symbol
+                    }
+        except sqlite3.OperationalError as e:
+            # Table doesn't exist yet or database is empty - this is fine
+            logger.info(f"No tokenized videos found (database may be empty): {e}")
+            tokenized_videos = {}
             finally:
-        conn.close()
-        
-        # Format videos with tokenization status
-        videos = []
-        for item in videos_response.get('items', []):
+                conn.close()
+            
+            # Format videos with tokenization status
+            videos = []
+            for item in videos_response.get('items', []):
             video_id = item['id']['videoId']
             video_data = {
                 'id': video_id,
@@ -4049,8 +4049,8 @@ def get_youtube_videos():
                 'isTokenized': video_id in tokenized_videos,
                 'tokenInfo': tokenized_videos.get(video_id)
             }
-            videos.append(video_data)
-        
+                videos.append(video_data)
+            
             # Cache the videos
             conn = sqlite3.connect('creatorvault.db')
             cursor = conn.cursor()
@@ -4064,13 +4064,13 @@ def get_youtube_videos():
             
             logger.info(f"✅ Fetched and cached {len(videos)} YouTube videos for {channel_title}")
             
-        return jsonify({
-            "success": True,
-            "videos": videos,
-            "channel": {
-                "id": channel_id,
-                "title": channel['snippet']['title'],
-                "subscriberCount": int(channel['statistics'].get('subscriberCount', 0))
+            return jsonify({
+                "success": True,
+                "videos": videos,
+                "channel": {
+                    "id": channel_id,
+                    "title": channel['snippet']['title'],
+                    "subscriberCount": int(channel['statistics'].get('subscriberCount', 0))
                 },
                 "cached": False
             })
