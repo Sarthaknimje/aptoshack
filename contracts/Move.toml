@@ -1,0 +1,12 @@
+[package]
+name = "creatorvault"
+version = "1.0.0"
+
+[addresses]
+creatorvault = "0x9f3074e3274423b1312330ec60c4257e7ccb44d88aac8f53eeb3fe6a5d8b02ba"
+
+[dependencies.AptosFramework]
+git = "https://github.com/aptos-labs/aptos-core.git"
+rev = "mainnet"
+subdir = "aptos-move/framework/aptos-framework"
+
