@@ -182,7 +182,10 @@ const TradingMarketplace: React.FC = () => {
             
             // Fetch real trade history for chart
             // Use token_id (Aptos metadata address) if available, otherwise fallback to asa_id
-            const tradeHistoryId = token.token_id || token.asa_id
+            // Ensure token_id is a string to avoid scientific notation
+            const tradeHistoryId = token.token_id 
+              ? String(token.token_id)  // Convert to string to avoid scientific notation
+              : (token.asa_id ? String(token.asa_id) : null)
             if (tradeHistoryId) {
               fetchTradeHistory(tradeHistoryId)
             }
@@ -310,7 +313,10 @@ const TradingMarketplace: React.FC = () => {
       // Refresh token data
       fetchTokenData()
       // Refresh trade history
-      const tradeHistoryId = tokenData.token_id || tokenData.asa_id
+      // Ensure token_id is a string to avoid scientific notation
+      const tradeHistoryId = tokenData.token_id 
+        ? String(tokenData.token_id)
+        : (tokenData.asa_id ? String(tokenData.asa_id) : null)
       if (tradeHistoryId) {
         fetchTradeHistory(tradeHistoryId)
       }
@@ -480,11 +486,19 @@ const TradingMarketplace: React.FC = () => {
           const availableSupply = totalSupply - currentSupply
           
           if (tradeAmount > availableSupply) {
-            setTradeError(
-              `Insufficient token supply! Available: ${availableSupply.toFixed(2)} tokens, ` +
-              `but you're trying to buy ${tradeAmount.toFixed(2)} tokens. ` +
-              `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}`
-            )
+            if (availableSupply <= 0) {
+              setTradeError(
+                `All tokens have been minted! ` +
+                `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}. ` +
+                `You can only sell existing tokens, not buy new ones.`
+              )
+            } else {
+              setTradeError(
+                `Insufficient token supply! Available: ${availableSupply.toFixed(2)} tokens, ` +
+                `but you're trying to buy ${tradeAmount.toFixed(2)} tokens. ` +
+                `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}`
+              )
+            }
             setIsProcessing(false)
             return
           }

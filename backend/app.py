@@ -1693,6 +1693,7 @@ def get_tokens():
             
             tokens.append({
                 "asa_id": token_dict.get('asa_id', 0),
+                "token_id": token_dict.get('token_id', ''),  # Aptos FA metadata address
                 "creator": token_dict.get('creator', ''),
                 "creator_address": token_dict.get('creator', ''),
                 "token_name": token_dict.get('token_name', ''),
