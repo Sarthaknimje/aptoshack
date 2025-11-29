@@ -1811,12 +1811,12 @@ def get_trades(token_identifier):
             WHERE asa_id = ? AND created_at >= {time_filter}
             ORDER BY created_at DESC
             LIMIT ?
-                    ''', (asa_id_from_token, limit))
-                else:
-                    # No token found, return empty
-                    trades = []
-                    conn.close()
-                    return jsonify({
+        ''', (asa_id_from_token, limit))
+        else:
+            # No token found, return empty
+            trades = []
+            conn.close()
+            return jsonify({
                         "success": True,
                         "trades": [],
                         "count": 0
