@@ -733,9 +733,15 @@ const TradingMarketplace: React.FC = () => {
               aptReserve = cachedSupply.reserve
             } else {
               console.log(`[Final Supply Check] Querying contract (no cached values)`)
-              currentSupply = await getCurrentSupply(tokenData.creator)
-              totalSupply = await getTotalSupply(tokenData.creator)
-              aptReserve = await getAptReserve(tokenData.creator)
+              // Get tokenId (content_id) from tokenData
+              const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
+              if (!tokenId) {
+                throw new Error('No tokenId found in tokenData')
+              }
+              
+              currentSupply = await getCurrentSupply(tokenData.creator, tokenId)
+              totalSupply = await getTotalSupply(tokenData.creator, tokenId)
+              aptReserve = await getAptReserve(tokenData.creator, tokenId)
             }
             
             const availableSupply = totalSupply - currentSupply
