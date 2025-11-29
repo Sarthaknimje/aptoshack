@@ -49,8 +49,13 @@ export async function uploadPremiumContent(
     const result = await response.json()
     return {
       blobUrl: result.blobUrl || result.blobId,
-      blobId: result.blobId,
-      expirationDate: expirationDate,
+      blobId: result.blobId || result.blobName,
+      blobName: result.blobName,
+      accountAddress: result.accountAddress,
+      transactionHash: result.transactionHash,
+      expirationDate: result.expirationDate ? new Date(result.expirationDate) : expirationDate,
+      explorerUrl: result.explorerUrl,
+      aptosExplorerUrl: result.aptosExplorerUrl,
     }
   } catch (error) {
     console.error('Failed to upload premium content to Shelby:', error)

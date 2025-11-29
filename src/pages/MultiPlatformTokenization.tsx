@@ -267,7 +267,7 @@ const MultiPlatformTokenization: React.FC = () => {
           
           const uploadResult = await uploadPremiumContent(premiumContent, blobName, 365)
           premiumContentUrl = uploadResult.blobUrl
-          premiumContentBlobId = uploadResult.blobId
+          premiumContentBlobId = uploadResult.blobId || uploadResult.blobName
           
           // Detailed console logging
           console.log(`\n✅ ========================================`)
@@ -276,9 +276,15 @@ const MultiPlatformTokenization: React.FC = () => {
           console.log(`   📦 File: ${premiumContent.name}`)
           console.log(`   🔗 Blob URL: ${premiumContentUrl}`)
           console.log(`   🆔 Blob ID: ${premiumContentBlobId}`)
+          console.log(`   📝 Blob Name: ${uploadResult.blobName || blobName}`)
+          console.log(`   👤 Account: ${uploadResult.accountAddress || 'N/A'}`)
+          console.log(`   🔐 Transaction: ${uploadResult.transactionHash || 'N/A'}`)
           console.log(`   📅 Expires: ${uploadResult.expirationDate.toISOString()}`)
           console.log(`   🌐 Network: shelbynet`)
-          console.log(`   🔍 Explorer: https://explorer.shelby.xyz/shelbynet/blob/${premiumContentBlobId}`)
+          console.log(`   🔍 Explorer: ${uploadResult.explorerUrl || 'N/A'}`)
+          if (uploadResult.aptosExplorerUrl) {
+            console.log(`   🔗 Aptos Explorer: ${uploadResult.aptosExplorerUrl}`)
+          }
           console.log(`   📡 RPC: https://api.shelbynet.shelby.xyz/shelby`)
           console.log(`✅ ========================================\n`)
           
@@ -286,7 +292,9 @@ const MultiPlatformTokenization: React.FC = () => {
           window.shelbyUploadInfo = {
             blobUrl: premiumContentUrl,
             blobId: premiumContentBlobId,
-            explorerUrl: `https://explorer.shelby.xyz/shelbynet/blob/${premiumContentBlobId}`,
+            blobName: uploadResult.blobName || blobName,
+            accountAddress: uploadResult.accountAddress,
+            explorerUrl: uploadResult.explorerUrl || `https://explorer.shelby.xyz/shelbynet/account/${uploadResult.accountAddress}/blobs?name=${encodeURIComponent(uploadResult.blobName || blobName)}`,
             fileName: premiumContent.name
           }
         } catch (uploadError) {

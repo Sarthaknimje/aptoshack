@@ -10,6 +10,9 @@ import { Database, ExternalLink, Globe, Shield, HardDrive, Link as LinkIcon } fr
 interface ShelbyStorageInfoProps {
   blobUrl?: string
   blobId?: string
+  blobName?: string
+  accountAddress?: string
+  explorerUrl?: string
   contentType?: string
   className?: string
 }
@@ -17,17 +20,21 @@ interface ShelbyStorageInfoProps {
 const ShelbyStorageInfo: React.FC<ShelbyStorageInfoProps> = ({
   blobUrl,
   blobId,
+  blobName,
+  accountAddress,
+  explorerUrl,
   contentType = 'video',
   className = ''
 }) => {
-  if (!blobUrl && !blobId) {
+  if (!blobUrl && !blobId && !blobName) {
     return null
   }
 
   const shelbyNetwork = 'shelbynet'
-  const shelbyExplorerUrl = blobId 
-    ? `https://explorer.shelby.xyz/${shelbyNetwork}/blob/${blobId}`
-    : null
+  // Use provided explorerUrl, or construct from account address and blob name
+  const shelbyExplorerUrl = explorerUrl || (accountAddress && blobName
+    ? `https://explorer.shelby.xyz/${shelbyNetwork}/account/${accountAddress}/blobs?name=${encodeURIComponent(blobName)}`
+    : null)
 
   return (
     <motion.div

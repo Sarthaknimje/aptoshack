@@ -2176,11 +2176,12 @@ const TradingMarketplace: React.FC = () => {
             
             {/* Shelby Storage Information */}
             <div className="mt-4">
-              <ShelbyStorageInfo
-                blobUrl={tokenData.premium_content_url}
-                blobId={tokenData.premium_content_blob_id}
-                contentType={tokenData.premium_content_type || 'video'}
-              />
+            <ShelbyStorageInfo
+              blobUrl={tokenData.premium_content_url}
+              blobId={tokenData.premium_content_blob_id}
+              blobName={tokenData.premium_content_blob_id} // blob_id is actually the blob name
+              contentType={tokenData.premium_content_type || 'video'}
+            />
             </div>
           </motion.div>
         )}
