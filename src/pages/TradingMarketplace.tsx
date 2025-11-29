@@ -316,8 +316,8 @@ const TradingMarketplace: React.FC = () => {
   }
 
   // Fetch user's token balance from blockchain
-  const fetchUserTokenBalance = async (asaId: number) => {
-    if (!address || !isConnected || !asaId) {
+  const fetchUserTokenBalance = async (tokenIdentifier: string | number) => {
+    if (!address || !isConnected || !tokenIdentifier) {
       setUserTokenBalance(0)
       return
     }
@@ -330,7 +330,9 @@ const TradingMarketplace: React.FC = () => {
         setUserTokenBalance(0)
         return
       }
-      const tokenId = tokenData.content_id || tokenData.token_id
+      
+      // Use content_id if available (most accurate), otherwise use token_id or tokenIdentifier
+      const tokenId = tokenData.content_id || tokenData.token_id || String(tokenIdentifier)
       if (!tokenId) {
         console.warn('Missing tokenId (content_id) in tokenData')
         setUserTokenBalance(0)
@@ -338,10 +340,18 @@ const TradingMarketplace: React.FC = () => {
       }
       
       // Fetch balance from Aptos contract
-      // Use MODULE_ADDRESS instead of tokenData.creator since contract is deployed there
-      const creatorAddress = tokenData.creator || '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6'
+      // Use creator address from tokenData
+      const creatorAddress = tokenData.creator
+      if (!creatorAddress) {
+        console.warn('Missing creator address in tokenData')
+        setUserTokenBalance(0)
+        return
+      }
+      
+      console.log(`[fetchUserTokenBalance] Fetching balance for creator=${creatorAddress}, tokenId=${tokenId}, account=${address}`)
       const balance = await getTokenBalance(creatorAddress, tokenId, address)
-          setUserTokenBalance(balance)
+      console.log(`[fetchUserTokenBalance] Balance fetched: ${balance} tokens`)
+      setUserTokenBalance(balance)
     } catch (error) {
       console.error('Error fetching token balance:', error)
       setUserTokenBalance(0)
@@ -1189,13 +1199,19 @@ const TradingMarketplace: React.FC = () => {
       await fetchTradeHistory(assetId)
       
       // Wait a moment for blockchain to update, then refresh user token balance and contract state
+      // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
+      const balanceIdentifier = tokenData?.token_id || tokenData?.asa_id
       setTimeout(async () => {
-        await fetchUserTokenBalance(assetId)
+        if (balanceIdentifier) {
+          await fetchUserTokenBalance(balanceIdentifier)
+        }
         await fetchContractState() // Refresh contract state for bonding curve
       }, 2000) // Wait 2 seconds for blockchain confirmation
       
       // Also refresh immediately (in case it's already updated)
-      await fetchUserTokenBalance(assetId)
+      if (balanceIdentifier) {
+        await fetchUserTokenBalance(balanceIdentifier)
+      }
       await fetchContractState() // Refresh contract state for bonding curve
 
       // Show success modal with confetti
