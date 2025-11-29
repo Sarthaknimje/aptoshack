@@ -4034,14 +4034,14 @@ def get_predictions():
                     ORDER BY created_at DESC
                 ''')
             else:
-            cursor.execute('''
-                SELECT prediction_id, creator_address, content_url, platform, metric_type,
-                       target_value, timeframe_hours, end_time, yes_pool, no_pool,
-                       status, outcome, initial_value, final_value, created_at
-                FROM predictions
-                WHERE status = ?
-                ORDER BY created_at DESC
-            ''', (status_filter,))
+                cursor.execute('''
+                    SELECT prediction_id, creator_address, content_url, platform, metric_type,
+                           target_value, timeframe_hours, end_time, yes_pool, no_pool,
+                           status, outcome, initial_value, final_value, created_at
+                    FROM predictions
+                    WHERE status = ?
+                    ORDER BY created_at DESC
+                ''', (status_filter,))
         
         rows = cursor.fetchall()
         
