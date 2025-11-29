@@ -5,6 +5,17 @@ import os
 import sqlite3
 import hashlib
 from datetime import datetime
+# Configure logging first (before any logger usage)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('backend.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 # Aptos SDK imports - optional since tokens are created via Petra wallet from frontend
 try:
     from aptos_sdk import account as aptos_account
@@ -39,17 +50,6 @@ try:
     from web_scraper import WebScraper
 except ImportError:
     WebScraper = None
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('backend.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
 
 # Load environment variables from .env file
 load_dotenv()
