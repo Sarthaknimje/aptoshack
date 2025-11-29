@@ -1,0 +1,90 @@
+{
+  "name": "creatorvault-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "description": "CreatorVault - Tokenize your content, build your empire, reward your holders with premium access",
+  "type": "module",
+  "author": {
+    "name": "CreatorVault Team",
+    "email": "sarthaknimje@gmail.com"
+  },
+  "contributors": [
+    {
+      "name": "Sarthak Nimje",
+      "email": "sarthaknimje@gmail.com"
+    },
+    {
+      "name": "Apurva Bardapurkar",
+      "email": "itsapurvasb343@gmail.com"
+    },
+    {
+      "name": "Tanushree Diwan",
+      "email": "tanushreediwan98@gmail.com"
+    }
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Sarthaknimje/algos2.git"
+  },
+  "keywords": [
+    "aptos",
+    "blockchain",
+    "creator-economy",
+    "tokenization",
+    "web3",
+    "react",
+    "typescript",
+    "vite"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "build:check": "tsc && vite build",
+    "build:prod": "tsc && vite build --mode production",
+    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+    "lint:fix": "eslint . --ext ts,tsx --fix",
+    "type-check": "tsc --noEmit",
+    "preview": "vite preview",
+    "clean": "rm -rf dist node_modules/.vite",
+    "format": "prettier --write \"src/**/*.{ts,tsx,json,css,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx,json,css,md}\""
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=9.0.0"
+  },
+  "dependencies": {
+    "@aptos-labs/ts-sdk": "^1.39.0",
+    "@tanstack/react-query": "^5.17.0",
+    "aptos": "^1.8.0",
+    "axios": "^1.13.0",
+    "canvas-confetti": "^1.9.4",
+    "cheerio": "^1.1.2",
+    "clsx": "^2.0.0",
+    "framer-motion": "^10.16.16",
+    "lucide-react": "^0.303.0",
+    "react": "^18.2.0",
+    "react-confetti": "^6.4.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.20.1",
+    "recharts": "^3.3.0",
+    "tailwind-merge": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@typescript-eslint/eslint-plugin": "^6.14.0",
+    "@typescript-eslint/parser": "^6.14.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "autoprefixer": "^10.4.16",
+    "eslint": "^8.55.0",
+    "eslint-plugin-react-hooks": "^4.6.0",
+    "eslint-plugin-react-refresh": "^0.4.5",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.4.0",
+    "typescript": "^5.2.2",
+    "vite": "^5.0.8",
+    "vite-plugin-node-polyfills": "^0.22.0"
+  }
+}
