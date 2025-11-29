@@ -181,20 +181,6 @@ module creatorvault::creator_token {
         
         // Validate we can mint this many tokens
         assert!(tokens_received > 0, error::invalid_argument(E_INVALID_AMOUNT));
-        
-        // Check if we exceed total supply - adjust tokens_received if needed
-        if (new_supply > token_data.total_supply) {
-            // Adjust tokens_received to not exceed total supply
-            tokens_received = token_data.total_supply - old_supply;
-            new_supply = token_data.total_supply;
-            
-            // Recalculate APT payment needed for adjusted tokens
-            // This ensures we don't pay more than needed
-            if (tokens_received <= 0) {
-                abort error::invalid_argument(E_INSUFFICIENT_BALANCE)
-            };
-        };
-        
         assert!(new_supply <= token_data.total_supply, error::invalid_argument(E_INSUFFICIENT_BALANCE));
         assert!(tokens_received >= min_tokens_received, error::invalid_argument(E_INSUFFICIENT_PAYMENT));
         
