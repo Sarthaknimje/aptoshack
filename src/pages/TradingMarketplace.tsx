@@ -649,22 +649,80 @@ const TradingMarketplace: React.FC = () => {
           return
         }
         
-        // Use contract-based buy function (atomic: pays APT and receives tokens)
-        // New signature: buy_tokens accepts APT payment, not token amount
-        // Calculate min tokens expected for slippage protection
-        // Contract will calculate: tokens = apt_payment / base_price (for first buy)
-        // base_price = 0.00001 APT per token, so tokens = apt_payment / 0.00001
-        const basePricePerToken = 0.00001
-        const estimatedTokensFromContract = algoAmount / basePricePerToken
-        const minTokensReceived = Math.floor(estimatedTokensFromContract * 0.9) // 10% slippage tolerance
-        
-        const buyResult = await buyTokensWithContract({
-          buyer: address!,
-          petraWallet: petraWallet,
-          creatorAddress: tokenData.creator || address!,
-          aptPayment: algoAmount, // APT amount to pay
-          minTokensReceived: minTokensReceived // Minimum tokens expected
-        })
+        // FINAL SUPPLY CHECK - Query contract state right before transaction
+        // This ensures we have the latest state and prevents race conditions
+        if (tokenData?.creator) {
+          try {
+            const currentSupply = await getCurrentSupply(tokenData.creator)
+            const totalSupply = await getTotalSupply(tokenData.creator)
+            const availableSupply = totalSupply - currentSupply
+            
+            console.log(`[Final Supply Check] Current: ${currentSupply}, Total: ${totalSupply}, Available: ${availableSupply}`)
+            
+            if (availableSupply <= 0) {
+              setTradeError(
+                `All tokens have been minted! ` +
+                `Current supply: ${currentSupply.toFixed(0)} / ${totalSupply.toFixed(0)}. ` +
+                `You can only sell existing tokens, not buy new ones.`
+              )
+              setIsProcessing(false)
+              return
+            }
+            
+            // Convert APT to octas for calculation (matching contract)
+            const aptPaymentOctas = Math.round(algoAmount * 100000000)
+            const basePriceOctas = 1000 // 0.00001 APT per token
+            
+            // Calculate tokens using EXACT contract formula
+            let estimatedTokensFromContract: number
+            if (currentSupply === 0) {
+              // First buy: tokens = apt_payment / base_price (integer division)
+              estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
+            } else {
+              // Subsequent buys: tokens = apt_payment / (old_reserve / old_supply)
+              const aptReserveOctas = Math.round((await getAptReserve(tokenData.creator)) * 100000000)
+              if (aptReserveOctas === 0 || currentSupply === 0) {
+                estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
+              } else {
+                const currentPriceOctas = Math.floor(aptReserveOctas / currentSupply)
+                if (currentPriceOctas === 0) {
+                  estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
+                } else {
+                  estimatedTokensFromContract = Math.floor(aptPaymentOctas / currentPriceOctas)
+                }
+              }
+            }
+            
+            console.log(`[Final Supply Check] APT Payment: ${algoAmount} (${aptPaymentOctas} octas)`)
+            console.log(`[Final Supply Check] Estimated tokens: ${estimatedTokensFromContract}`)
+            
+            // Check if this would exceed total supply
+            const newSupplyAfterTrade = currentSupply + estimatedTokensFromContract
+            if (newSupplyAfterTrade > totalSupply) {
+              setTradeError(
+                `Transaction would exceed total supply! ` +
+                `Current: ${currentSupply.toFixed(0)}, ` +
+                `Would mint: ${estimatedTokensFromContract.toFixed(0)}, ` +
+                `Total: ${totalSupply.toFixed(0)}. ` +
+                `Available: ${availableSupply.toFixed(0)} tokens. ` +
+                `Please reduce your amount.`
+              )
+              setIsProcessing(false)
+              return
+            }
+            
+            // Calculate min tokens for slippage protection (90% of estimated)
+            const minTokensReceived = Math.floor(estimatedTokensFromContract * 0.9)
+            
+            console.log(`[Final Supply Check] ✅ Proceeding - Min tokens: ${minTokensReceived}, Max available: ${availableSupply}`)
+            
+            const buyResult = await buyTokensWithContract({
+              buyer: address!,
+              petraWallet: petraWallet,
+              creatorAddress: tokenData.creator || address!,
+              aptPayment: algoAmount, // APT amount to pay
+              minTokensReceived: minTokensReceived // Minimum tokens expected
+            })
         
         txId = buyResult.txId
         finalPrice = estimate.new_price
