@@ -487,13 +487,15 @@ const TradingMarketplace: React.FC = () => {
       }
       
       // Check available supply from contract and adjust APT payment if needed
+      // THIS CHECK IS CRITICAL - must block transaction if supply is insufficient
       if (tokenData?.creator) {
         try {
           const currentSupply = await getCurrentSupply(tokenData.creator)
           const totalSupply = await getTotalSupply(tokenData.creator)
-          const availableSupply = totalSupply - currentSupply
           
-          if (availableSupply <= 0) {
+          console.log(`[Supply Check] Current: ${currentSupply}, Total: ${totalSupply}`)
+          
+          if (currentSupply >= totalSupply) {
             setTradeError(
               `All tokens have been minted! ` +
               `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}. ` +
@@ -503,53 +505,102 @@ const TradingMarketplace: React.FC = () => {
             return
           }
           
-          // Get APT payment from estimate
+          const availableSupply = totalSupply - currentSupply
+          
+          // Get APT payment from estimate (in APT, will convert to octas for contract)
           const aptPayment = estimate.algo_cost
           
+          if (!aptPayment || aptPayment <= 0) {
+            setTradeError('Invalid APT payment amount. Please try again.')
+            setIsProcessing(false)
+            return
+          }
+          
+          // Convert APT to octas for calculation (matching contract)
+          const aptPaymentOctas = aptPayment * 100000000
+          
           // Calculate how many tokens the contract will mint from the APT payment
-          // Contract formula depends on current supply:
-          // - If old_supply == 0: tokens_received = apt_payment / base_price (base_price = 1000 octas = 0.00001 APT)
+          // Contract formula (in creator_token.move):
+          // - If old_supply == 0: tokens_received = apt_payment / base_price (base_price = 1000 octas)
           // - If old_supply > 0: tokens_received = apt_payment / (old_reserve / old_supply)
-          const basePricePerToken = 0.00001 // APT per token (1000 octas)
+          const basePriceOctas = 1000 // 0.00001 APT per token (1000 octas)
           let estimatedTokensFromContract: number
           
           if (currentSupply === 0) {
-            // First buy: use base price
-            estimatedTokensFromContract = aptPayment / basePricePerToken
+            // First buy: use base price (contract uses integer division)
+            estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
           } else {
             // Subsequent buys: price = reserve / supply
-            const aptReserve = await getAptReserve(tokenData.creator)
-            const currentPricePerToken = aptReserve / currentSupply
-            estimatedTokensFromContract = aptPayment / currentPricePerToken
+            const aptReserveOctas = await getAptReserve(tokenData.creator) * 100000000
+            if (aptReserveOctas === 0 || currentSupply === 0) {
+              // Fallback to base price if reserve is 0
+              estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
+            } else {
+              // Contract uses integer division: tokens = apt_payment / (old_reserve / old_supply)
+              const currentPriceOctas = Math.floor(aptReserveOctas / currentSupply)
+              if (currentPriceOctas === 0) {
+                // Prevent division by zero
+                estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
+              } else {
+                estimatedTokensFromContract = Math.floor(aptPaymentOctas / currentPriceOctas)
+              }
+            }
           }
+          
+          console.log(`[Supply Check] APT Payment: ${aptPayment} (${aptPaymentOctas} octas)`)
+          console.log(`[Supply Check] Estimated tokens: ${estimatedTokensFromContract}`)
+          console.log(`[Supply Check] Available supply: ${availableSupply}`)
           
           // Check if contract will try to mint more than available
           if (estimatedTokensFromContract > availableSupply) {
             // Calculate maximum APT payment for available supply
             let maxAptForAvailableTokens: number
             if (currentSupply === 0) {
-              maxAptForAvailableTokens = availableSupply * basePricePerToken
+              maxAptForAvailableTokens = (availableSupply * basePriceOctas) / 100000000
             } else {
-              const aptReserve = await getAptReserve(tokenData.creator)
-              const currentPricePerToken = aptReserve / currentSupply
-              maxAptForAvailableTokens = availableSupply * currentPricePerToken
+              const aptReserveOctas = await getAptReserve(tokenData.creator) * 100000000
+              const currentPriceOctas = aptReserveOctas > 0 && currentSupply > 0 
+                ? Math.floor(aptReserveOctas / currentSupply) 
+                : basePriceOctas
+              maxAptForAvailableTokens = (availableSupply * currentPriceOctas) / 100000000
             }
             
             setTradeError(
               `Insufficient token supply! ` +
-              `Available: ${availableSupply.toFixed(2)} tokens, ` +
-              `but your payment of ${aptPayment.toFixed(6)} APT would mint ~${estimatedTokensFromContract.toFixed(2)} tokens. ` +
-              `Maximum you can buy: ${maxAptForAvailableTokens.toFixed(6)} APT (${availableSupply.toFixed(2)} tokens). ` +
-              `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}. ` +
-              `Please reduce your amount to ${availableSupply.toFixed(2)} tokens or less.`
+              `Available: ${availableSupply.toFixed(0)} tokens, ` +
+              `but your payment of ${aptPayment.toFixed(6)} APT would mint ~${estimatedTokensFromContract.toFixed(0)} tokens. ` +
+              `Maximum you can buy: ${maxAptForAvailableTokens.toFixed(6)} APT (${availableSupply.toFixed(0)} tokens). ` +
+              `Current supply: ${currentSupply.toFixed(0)} / ${totalSupply.toFixed(0)}. ` +
+              `Please reduce your amount to ${availableSupply.toFixed(0)} tokens or less.`
             )
             setIsProcessing(false)
             return
           }
+          
+          // Additional safety check: ensure new supply won't exceed total
+          const newSupplyAfterTrade = currentSupply + estimatedTokensFromContract
+          if (newSupplyAfterTrade > totalSupply) {
+            setTradeError(
+              `Transaction would exceed total supply! ` +
+              `Current: ${currentSupply.toFixed(0)}, ` +
+              `Would mint: ${estimatedTokensFromContract.toFixed(0)}, ` +
+              `Total: ${totalSupply.toFixed(0)}. ` +
+              `Please reduce your amount.`
+            )
+            setIsProcessing(false)
+            return
+          }
+          
+          console.log(`[Supply Check] ✅ Passed - Will mint ${estimatedTokensFromContract} tokens, new supply: ${newSupplyAfterTrade}`)
         } catch (error) {
-          console.error('Error checking token supply:', error)
-          // Continue with trade if supply check fails, but warn user
-          console.warn('Could not verify token supply from contract, proceeding with trade...')
+          console.error('❌ Error checking token supply:', error)
+          // DO NOT proceed if supply check fails - this is critical
+          setTradeError(
+            `Failed to verify token supply from contract. ` +
+            `Please refresh and try again. Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+          )
+          setIsProcessing(false)
+          return
         }
       }
       
