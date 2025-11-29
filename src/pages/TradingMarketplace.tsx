@@ -460,7 +460,8 @@ const TradingMarketplace: React.FC = () => {
       return
     }
 
-    if (!tokenData?.asa_id) {
+    // Support both asa_id (Algorand) and token_id (Aptos)
+    if (!tokenData?.asa_id && !tokenData?.token_id) {
       setTradeError('Token data not loaded')
       return
     }
