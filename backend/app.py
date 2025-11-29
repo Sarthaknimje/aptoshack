@@ -1182,8 +1182,8 @@ def get_youtube_channel():
             try:
                 cached_data = json.loads(cached_data_json)
                 logger.info(f"⚠️ Error occurred, returning cached data as fallback")
-        return jsonify({
-            "success": True,
+                return jsonify({
+                    "success": True,
                     "channel": cached_data,
                     "cached": True,
                     "warning": "Using cached data due to error"
