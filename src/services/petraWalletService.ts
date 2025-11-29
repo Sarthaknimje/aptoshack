@@ -146,6 +146,40 @@ export async function createASAWithPetra({
       console.log(`  - Total Supply: ${safeTotalSupply}`)
       console.log(`  - Creator: ${sender}`)
 
+      // Check if token already exists before initializing
+      try {
+        const existingSupply = await getCurrentSupply(sender, tokenId)
+        console.log(`ℹ️ Token already exists with supply: ${existingSupply}. Skipping initialization.`)
+        
+        // Token exists, get metadata address and return
+        try {
+          const metadataAddress = await getMetadataAddress(sender, tokenId)
+          console.log(`✅ Token already exists. Metadata address: ${metadataAddress}`)
+          return {
+            txId: '', // No transaction needed
+            assetId: metadataAddress,
+            metadataAddress
+          }
+        } catch (metaError) {
+          // If we can't get metadata address, still return success since token exists
+          console.warn(`⚠️ Could not get metadata address, but token exists. Supply: ${existingSupply}`)
+          return {
+            txId: '',
+            assetId: sender, // Fallback to creator address
+            metadataAddress: sender
+          }
+        }
+      } catch (error: any) {
+        // Token doesn't exist (error about resource not found is expected)
+        if (!error.message?.includes('Failed to borrow global resource') && 
+            !error.message?.includes('Failed to fetch current supply')) {
+          // Some other error occurred, log it but continue
+          console.warn(`⚠️ Could not check if token exists: ${error.message}. Proceeding with initialization...`)
+        } else {
+          console.log(`ℹ️ Token does not exist yet. Proceeding with initialization...`)
+        }
+      }
+
       // Build transaction to call initialize function
       // Note: Aptos accepts u64 as string to avoid JavaScript number precision issues
       const transaction = {
@@ -189,6 +223,27 @@ export async function createASAWithPetra({
               }
     } catch (error: any) {
       console.error('❌ Error creating FA token:', error)
+      
+      // Handle "already exists" error - token was already initialized
+      if (error?.message?.includes('already exists') || 
+          error?.message?.includes('An object already exists') ||
+          error?.message?.includes('OBJECT_EXISTS') ||
+          (error?.info && typeof error.info === 'string' && error.info.includes('already exists'))) {
+        console.log(`ℹ️ Token already exists. Attempting to get metadata address...`)
+        try {
+          const metadataAddress = await getMetadataAddress(sender, tokenId)
+          console.log(`✅ Token already exists. Metadata address: ${metadataAddress}`)
+          return {
+            txId: '', // No transaction needed
+            assetId: metadataAddress,
+            metadataAddress
+          }
+        } catch (metaError) {
+          // If we can't get metadata address, return a helpful error
+          console.warn(`⚠️ Token exists but could not get metadata address: ${metaError}`)
+          throw new Error('Token already exists but could not retrieve metadata. Please try refreshing the page.')
+        }
+      }
       
       if (error?.message?.includes('Network mismatch') || error?.message?.includes('different networks')) {
         const networkError = new Error('Network Mismatch: Please ensure your Petra Wallet is set to TESTNET.')
@@ -877,7 +932,10 @@ export async function placePredictionBet({
 /**
  * Get metadata address for a token
  */
-export async function getMetadataAddress(creatorAddress: string): Promise<string> {
+export async function getMetadataAddress(creatorAddress: string, tokenId: string): Promise<string> {
+  const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
+  
+  // Try new contract first
   try {
     const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
@@ -885,18 +943,67 @@ export async function getMetadataAddress(creatorAddress: string): Promise<string
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_metadata_address`,
         type_arguments: [],
-        arguments: [creatorAddress]
+        arguments: [creatorAddress, tokenIdHex]
+      })
+    })
+
+    if (response.ok) {
+      const data = await response.json()
+      // Extract object address from the response
+      const metadataObj = data[0]
+      if (typeof metadataObj === 'object' && metadataObj.inner) {
+        return metadataObj.inner
+      } else if (typeof metadataObj === 'string') {
+        return metadataObj
+      }
+      return creatorAddress
+    }
+    
+    // If 400 error, try old contract
+    if (response.status === 400) {
+      const errorText = await response.text()
+      if (errorText.includes('Failed to borrow global resource')) {
+        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+        // Fall through to try old contract
+      } else {
+        throw new Error(`Failed to fetch metadata address: ${response.status}`)
+      }
+    } else {
+      throw new Error(`Failed to fetch metadata address: ${response.status}`)
+    }
+  } catch (error: any) {
+    // If it's a rate limit or other error, try old contract as fallback
+    if (error.message?.includes('429') || error.message?.includes('rate limit')) {
+      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+    }
+  }
+  
+  // Try old contract as fallback
+  try {
+    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        function: `${OLD_MODULE_ADDRESS}::creator_token::get_metadata_address`,
+        type_arguments: [],
+        arguments: [creatorAddress, tokenIdHex]
       })
     })
 
     if (!response.ok) {
-      throw new Error('Failed to fetch metadata address')
+      throw new Error(`Failed to fetch metadata address from old contract: ${response.status}`)
     }
 
     const data = await response.json()
-    return data[0] || creatorAddress
-  } catch (error) {
-    console.error('❌ Error getting metadata address:', error)
+    const metadataObj = data[0]
+    if (typeof metadataObj === 'object' && metadataObj.inner) {
+      return metadataObj.inner
+    } else if (typeof metadataObj === 'string') {
+      return metadataObj
+    }
     return creatorAddress
+  } catch (error) {
+    console.error('❌ Error getting metadata address from both contracts:', error)
+    throw error
   }
 }
