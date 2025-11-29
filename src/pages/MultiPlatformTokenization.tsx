@@ -389,7 +389,9 @@ const MultiPlatformTokenization: React.FC = () => {
           content_thumbnail: scrapedContent.thumbnailUrl || '',
           premium_content_url: premiumContentUrl,
           premium_content_blob_id: premiumContentBlobId,
-          premium_content_type: premiumContentType || 'video'
+          premium_content_type: premiumContentType || 'video',
+          premium_content_account_address: premiumContentAccountAddress,
+          premium_content_explorer_url: premiumContentExplorerUrl
         })
       })
 
