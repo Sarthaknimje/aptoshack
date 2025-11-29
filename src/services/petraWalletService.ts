@@ -232,12 +232,14 @@ export async function buyTokensWithContract({
   buyer,
   petraWallet,
   creatorAddress,
+  tokenId,  // content_id (e.g., video_id, tweet_id, LinkedIn post ID)
   aptPayment,
   minTokensReceived
 }: {
   buyer: string
   petraWallet: any
   creatorAddress: string
+  tokenId: string  // Unique identifier for this token (content_id)
   aptPayment: number // APT amount to pay (will be converted to octas)
   minTokensReceived?: number // Minimum tokens expected (slippage protection)
 }): Promise<{ txId: string; tokensReceived: number; aptSpent: number }> {
@@ -245,6 +247,10 @@ export async function buyTokensWithContract({
     try {
       if (!petraWallet) {
         throw new Error('Petra wallet not connected')
+      }
+
+      if (!tokenId || tokenId.trim().length === 0) {
+        throw new Error('Token ID (content_id) is required')
       }
 
       // Convert APT to octas (1 APT = 100000000 octas)
@@ -256,15 +262,18 @@ export async function buyTokensWithContract({
       // Minimum tokens (slippage protection) - default to 0 if not provided
       const minTokens = minTokensReceived ? Math.round(minTokensReceived) : 0
 
+      // Convert tokenId string to bytes (vector<u8>)
+      const tokenIdBytes = Array.from(new TextEncoder().encode(tokenId))
+
       // Build transaction to call buy_tokens function
-      // New signature: buy_tokens(buyer, creator, token_id, apt_payment, min_tokens_received)
+      // Signature: buy_tokens(buyer, creator, token_id, apt_payment, min_tokens_received)
       const transaction = {
         type: "entry_function_payload",
         function: `${MODULE_ADDRESS}::creator_token::buy_tokens`,
         type_arguments: [],
         arguments: [
           creatorAddress, // creator: address
-          Array.from(new TextEncoder().encode(tokenId)), // token_id: vector<u8>
+          tokenIdBytes, // token_id: vector<u8>
           aptPaymentOctas.toString(), // apt_payment: u64 (in octas)
           minTokens.toString() // min_tokens_received: u64
         ]
