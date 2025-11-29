@@ -449,16 +449,23 @@ export async function transferTokensWithContract({
  */
 export async function getTokenBalance(
   creatorAddress: string,
+  tokenId: string,
   accountAddress: string
 ): Promise<number> {
   try {
+    // Convert tokenId string to hex-encoded bytes (Aptos expects hex string for vector<u8>)
+    const tokenIdBytes = new TextEncoder().encode(tokenId)
+    const tokenIdHex = '0x' + Array.from(tokenIdBytes)
+      .map(b => b.toString(16).padStart(2, '0'))
+      .join('')
+    
     const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_balance`,
         type_arguments: [],
-        arguments: [creatorAddress, accountAddress]
+        arguments: [creatorAddress, tokenIdHex, accountAddress]
       })
     })
 
@@ -485,7 +492,7 @@ export async function getCurrentSupply(creatorAddress: string, tokenId: string):
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_current_supply`,
         type_arguments: [],
-        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
+        arguments: [creatorAddress, '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')]
       })
     })
 
@@ -516,7 +523,7 @@ export async function getTotalSupply(creatorAddress: string, tokenId: string): P
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_total_supply`,
         type_arguments: [],
-        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
+        arguments: [creatorAddress, '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')]
       })
     })
 
@@ -547,7 +554,7 @@ export async function getAptReserve(creatorAddress: string, tokenId: string): Pr
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_apt_reserve`,
         type_arguments: [],
-        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
+        arguments: [creatorAddress, '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')]
       })
     })
 
@@ -609,7 +616,7 @@ export async function getCurrentSupply(creatorAddress: string, tokenId: string):
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_current_supply`,
         type_arguments: [],
-        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
+        arguments: [creatorAddress, '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')]
       })
     })
 
@@ -640,7 +647,7 @@ export async function getTotalSupply(creatorAddress: string, tokenId: string): P
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_total_supply`,
         type_arguments: [],
-        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
+        arguments: [creatorAddress, '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')]
       })
     })
 
@@ -671,7 +678,7 @@ export async function getAptReserve(creatorAddress: string, tokenId: string): Pr
       body: JSON.stringify({
         function: `${MODULE_ADDRESS}::creator_token::get_apt_reserve`,
         type_arguments: [],
-        arguments: [creatorAddress, Array.from(new TextEncoder().encode(tokenId))]
+        arguments: [creatorAddress, '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')]
       })
     })
 

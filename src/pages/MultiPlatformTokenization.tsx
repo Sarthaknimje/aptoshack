@@ -943,4 +943,3 @@ const TokenizeModal: React.FC<TokenizeModalProps> = ({
 }
 
 export default MultiPlatformTokenization
-export default MultiPlatformTokenization
