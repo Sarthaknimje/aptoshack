@@ -3245,19 +3245,32 @@ def bonding_curve_estimate():
         conn = sqlite3.connect('creatorvault.db')
         cursor = conn.cursor()
         
-        # Try to parse as integer (legacy asa_id) or use as string (Aptos token_id)
-        try:
-            asa_id_int = int(token_identifier)
-            # Use asa_id for legacy tokens
-            cursor.execute('SELECT bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE asa_id = ?', (asa_id_int,))
-        except ValueError:
-            # Use token_id for Aptos tokens (metadata address or content_id)
-            cursor.execute('SELECT bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE token_id = ?', (token_identifier,))
+        # Try to find token - check token_id (content_id), metadata_address, and asa_id
+        # This handles all possible identifier formats
+        row = None
         
+        # First, try as token_id (content_id string) - this is the primary identifier for Aptos tokens
+        cursor.execute('SELECT bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE token_id = ?', (str(token_identifier),))
         row = cursor.fetchone()
+        
+        # If not found, try as metadata_address (for Aptos tokens, this might be a numeric string)
+        if not row:
+            cursor.execute('SELECT bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE metadata_address = ?', (str(token_identifier),))
+            row = cursor.fetchone()
+        
+        # If still not found, try as asa_id (integer) for legacy tokens
+        if not row:
+            try:
+                asa_id_int = int(token_identifier)
+                cursor.execute('SELECT bonding_curve_config, bonding_curve_state, current_price, total_supply FROM tokens WHERE asa_id = ?', (asa_id_int,))
+                row = cursor.fetchone()
+            except ValueError:
+                # Not a valid integer, all queries failed, so token doesn't exist
+                pass
         
         if not row:
             conn.close()
+            logger.warning(f"Token not found: token_identifier={token_identifier} (tried as token_id, metadata_address, and asa_id)")
             return jsonify({"success": False, "error": "Token not found"}), 404
         
         bonding_curve_config_json, bonding_curve_state_json, current_price, total_supply = row

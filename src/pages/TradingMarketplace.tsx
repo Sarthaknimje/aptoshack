@@ -466,7 +466,8 @@ const TradingMarketplace: React.FC = () => {
   // Estimate trade when amount changes
   useEffect(() => {
     // Support both token_id (Aptos) and asa_id (Algorand)
-    const tokenIdentifier = tokenData?.token_id || tokenData?.asa_id
+    // Priority: content_id > token_id > metadata_address > asa_id
+    const tokenIdentifier = tokenData?.content_id || tokenData?.token_id || tokenData?.metadata_address || tokenData?.asa_id
     if (!tokenIdentifier || !amount || parseFloat(amount) <= 0) {
       setTradeEstimate(null)
       return
@@ -529,8 +530,9 @@ const TradingMarketplace: React.FC = () => {
     }
     
     // Use content_id (token_id) for Aptos tokens, or asa_id for legacy Algorand tokens
-    // Priority: content_id > token_id > asa_id
-    const tokenIdentifier = tokenData.content_id || tokenData.token_id || tokenData.asa_id
+    // Priority: content_id > token_id > metadata_address > asa_id
+    // Note: content_id is what the contract uses, so it's the most reliable identifier
+    const tokenIdentifier = tokenData.content_id || tokenData.token_id || tokenData.metadata_address || tokenData.asa_id
     if (!tokenIdentifier) {
       console.error('❌ Token identifier not found in tokenData:', tokenData)
       setTradeError('Token identifier not found')
