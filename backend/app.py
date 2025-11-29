@@ -3532,19 +3532,19 @@ def get_youtube_videos():
             # Format videos with tokenization status
             videos = []
             for item in videos_response.get('items', []):
-            video_id = item['id']['videoId']
-            video_data = {
-                'id': video_id,
-                'title': item['snippet']['title'],
-                'description': item['snippet']['description'],
-                'thumbnail': item['snippet']['thumbnails']['high']['url'],
-                'publishedAt': item['snippet']['publishedAt'],
-                'url': f"https://www.youtube.com/watch?v={video_id}",
-                'isTokenized': video_id in tokenized_videos,
-                'tokenInfo': tokenized_videos.get(video_id)
-            }
-            videos.append(video_data)
-        
+                video_id = item['id']['videoId']
+                video_data = {
+                    'id': video_id,
+                    'title': item['snippet']['title'],
+                    'description': item['snippet']['description'],
+                    'thumbnail': item['snippet']['thumbnails']['high']['url'],
+                    'publishedAt': item['snippet']['publishedAt'],
+                    'url': f"https://www.youtube.com/watch?v={video_id}",
+                    'isTokenized': video_id in tokenized_videos,
+                    'tokenInfo': tokenized_videos.get(video_id)
+                }
+                videos.append(video_data)
+            
             # Cache the videos
             conn = sqlite3.connect('creatorvault.db')
             cursor = conn.cursor()
