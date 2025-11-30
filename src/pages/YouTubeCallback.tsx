@@ -13,15 +13,7 @@ const YouTubeCallback: React.FC = () => {
   const [channelInfo, setChannelInfo] = useState<{title: string, id: string} | null>(null)
 
   useEffect(() => {
-    // If we're on port 5175, redirect to 5180 with same query params
-    if (window.location.port === '5175' || window.location.href.includes(':5175')) {
-      const currentUrl = new URL(window.location.href)
-      currentUrl.port = '5180'
-      // Preserve all query parameters
-      window.location.replace(currentUrl.toString())
-      return
-    }
-    
+    // Handle callback on current port (5175)
     handleCallback()
   }, [])
 
@@ -42,11 +34,8 @@ const YouTubeCallback: React.FC = () => {
         return
       }
 
-      // Send the code to backend - always use port 5180 for redirect URI
-      // Even if we're on a different port, tell backend we want 5180
-      const redirectOrigin = window.location.port === '5175' 
-        ? 'http://localhost:5180' 
-        : window.location.origin.replace(':5175', ':5180')
+      // Send the code to backend - use current origin (port 5175)
+      const redirectOrigin = window.location.origin
       
       const response = await fetch(`${BACKEND_URL}/auth/youtube/callback`, {
         method: 'POST',

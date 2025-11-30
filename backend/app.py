@@ -76,7 +76,7 @@ def handle_errors(f):
     return decorated_function
 
 # Configure CORS with environment-based origins
-allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:5180').split(',')
+allowed_origins = os.getenv('CORS_ORIGINS', 'http://localhost:5175').split(',')
 CORS(app, resources={
     r"/*": {
         "origins": allowed_origins if os.getenv('FLASK_ENV') == 'production' else "*",
@@ -124,7 +124,7 @@ YOUTUBE_CLIENT_ID = os.getenv('YOUTUBE_CLIENT_ID', 'your-youtube-client-id')
 YOUTUBE_CLIENT_SECRET = os.getenv('YOUTUBE_CLIENT_SECRET', 'your-youtube-client-secret')
 YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', 'AIzaSyCpKxPjhZfHnxf2tk2g8Qu98TmSeNKaCAk')
 # Default redirect URI - will be overridden by request origin
-DEFAULT_YOUTUBE_REDIRECT_URI = os.getenv('YOUTUBE_REDIRECT_URI', 'http://localhost:5180/auth/youtube/callback')
+DEFAULT_YOUTUBE_REDIRECT_URI = os.getenv('YOUTUBE_REDIRECT_URI', 'http://localhost:5175/auth/youtube/callback')
 YOUTUBE_SCOPES = ['https://www.googleapis.com/auth/youtube.readonly']
 
 # YouTube sessions - will be loaded from database
@@ -821,14 +821,19 @@ def youtube_auth():
                 "success": False,
                 "error": "YouTube OAuth client not configured. Please set YOUTUBE_CLIENT_ID and YOUTUBE_CLIENT_SECRET environment variables."
             }), 500
-        # FORCE port 5180 - always use 5180 regardless of what origin is sent
-        # This ensures Google OAuth redirects to the correct port
-        origin = 'http://localhost:5180'
+        # Use port 5175 - get from request origin or use default
+        origin = request.headers.get('Origin', 'http://localhost:5175')
+        # Ensure it's port 5175
+        if ':5180' in origin:
+            origin = origin.replace(':5180', ':5175')
+        elif 'localhost' in origin and ':5175' not in origin and ':5180' not in origin:
+            # If no port specified, add 5175
+            origin = origin.replace('localhost', 'localhost:5175')
         
-        # Construct redirect URI using port 5180
+        # Construct redirect URI using port 5175
         redirect_uri = f"{origin}/auth/youtube/callback"
         
-        logger.info(f"Using redirect URI: {redirect_uri} (FORCED to port 5180, received Origin: {request.headers.get('Origin')}, Referer: {request.headers.get('Referer')})")
+        logger.info(f"Using redirect URI: {redirect_uri} (port 5175, received Origin: {request.headers.get('Origin')}, Referer: {request.headers.get('Referer')})")
         
         flow = Flow.from_client_config(
             {
@@ -872,22 +877,21 @@ def youtube_callback():
                 "error": "No authorization code provided"
             }), 400
         
-        # FORCE port 5180 - always use 5180 for callback
-        # Use the redirect_uri from request if provided, but ensure it's port 5180
+        # Use port 5175 - ensure redirect URI uses port 5175
         if redirect_uri:
-            # Replace any port with 5180
-            if ':5175' in redirect_uri:
-                redirect_uri = redirect_uri.replace(':5175', ':5180')
-            elif 'localhost' in redirect_uri and ':5180' not in redirect_uri:
-                # Extract the path and rebuild with port 5180
+            # Replace any port with 5175
+            if ':5180' in redirect_uri:
+                redirect_uri = redirect_uri.replace(':5180', ':5175')
+            elif 'localhost' in redirect_uri and ':5175' not in redirect_uri and ':5180' not in redirect_uri:
+                # Extract the path and rebuild with port 5175
                 from urllib.parse import urlparse, urlunparse
                 parsed = urlparse(redirect_uri)
-                redirect_uri = urlunparse((parsed.scheme, 'localhost:5180', parsed.path, parsed.params, parsed.query, parsed.fragment))
+                redirect_uri = urlunparse((parsed.scheme, 'localhost:5175', parsed.path, parsed.params, parsed.query, parsed.fragment))
         else:
-            # Force to 5180
+            # Use default (port 5175)
             redirect_uri = DEFAULT_YOUTUBE_REDIRECT_URI
         
-        logger.info(f"Using redirect URI for callback: {redirect_uri} (FORCED to port 5180, received from request: {data.get('redirect_uri')})")
+        logger.info(f"Using redirect URI for callback: {redirect_uri} (port 5175, received from request: {data.get('redirect_uri')})")
         
         flow = Flow.from_client_config(
             {
