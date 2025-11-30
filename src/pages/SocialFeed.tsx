@@ -18,7 +18,6 @@ import {
 } from 'lucide-react'
 import PremiumBackground from '../components/PremiumBackground'
 import { useNavigate } from 'react-router-dom'
-import { useWallet } from '../contexts/WalletContext'
 
 const SocialFeed: React.FC = () => {
   const navigate = useNavigate()

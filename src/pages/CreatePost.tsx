@@ -114,9 +114,30 @@ const CreatePost: React.FC = () => {
       }
 
       // Create post
+      // Use token_id or content_id (they should be the same)
+      const tokenId = token.token_id || token.content_id || token.id
+      
+      if (!tokenId) {
+        setError('Token ID not found. Please create a token first.')
+        setCreating(false)
+        return
+      }
+
+      console.log('Creating post with:', {
+        creatorAddress: address,
+        tokenId,
+        contentType,
+        title,
+        description,
+        isPremium,
+        minimumBalance,
+        shelbyBlobId,
+        shelbyBlobUrl
+      })
+
       const result = await createPost({
         creatorAddress: address,
-        tokenId: token.token_id,
+        tokenId: String(tokenId), // Ensure it's a string
         contentType,
         shelbyBlobId,
         shelbyBlobUrl,

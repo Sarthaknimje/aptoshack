@@ -2936,7 +2936,11 @@ def get_user_tokens(address):
         for row in cursor.fetchall():
             token_dict = dict(zip(columns, row))
             tokens.append({
+                "id": token_dict.get('id'),
+                "token_id": token_dict.get('token_id') or token_dict.get('content_id'),  # Use token_id or content_id
+                "content_id": token_dict.get('content_id') or token_dict.get('token_id'),  # Use content_id or token_id
                 "asa_id": token_dict.get('asa_id', 0),
+                "metadata_address": token_dict.get('metadata_address'),
                 "token_name": token_dict.get('token_name', ''),
                 "token_symbol": token_dict.get('token_symbol', ''),
                 "total_supply": token_dict.get('total_supply', 0),
@@ -2949,7 +2953,8 @@ def get_user_tokens(address):
                 "platform": token_dict.get('platform', ''),
                 "content_url": token_dict.get('content_url', ''),
                 "content_thumbnail": token_dict.get('content_thumbnail', ''),
-                "youtube_channel_title": token_dict.get('youtube_channel_title', '')
+                "youtube_channel_title": token_dict.get('youtube_channel_title', ''),
+                "creator": token_dict.get('creator', address)
             })
         
         conn.close()
