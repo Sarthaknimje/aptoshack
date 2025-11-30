@@ -15,18 +15,19 @@
 
 @layer base {
   * {
-    @apply border-gray-800;
+    @apply border-gray-200;
   }
   
   body {
-    @apply text-white font-sans antialiased;
+    @apply text-gray-900 font-sans antialiased;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue', sans-serif;
     font-feature-settings: "rlig" 1, "calt" 1;
-    background-color: #0a0a0f;
+    background-color: #fafafa;
   }
   
   html {
     scroll-behavior: smooth;
-    background-color: #0a0a0f;
+    background-color: #fafafa;
   }
   
   ::-webkit-scrollbar {
@@ -34,16 +35,16 @@
   }
   
   ::-webkit-scrollbar-track {
-    background: rgba(255, 255, 255, 0.05);
+    background: #f1f1f1;
   }
   
   ::-webkit-scrollbar-thumb {
-    background: rgba(168, 85, 247, 0.5);
+    background: #c1c1c1;
     border-radius: 4px;
   }
   
   ::-webkit-scrollbar-thumb:hover {
-    background: rgba(168, 85, 247, 0.7);
+    background: #a8a8a8;
   }
 }
 

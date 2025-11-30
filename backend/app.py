@@ -6489,6 +6489,155 @@ def get_creator_posts(creator_address):
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/posts/<int:post_id>/tokenize', methods=['POST'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def tokenize_post(post_id):
+    """Create a token for a specific post"""
+    try:
+        data = request.get_json()
+        creator_address = data.get('creatorAddress')
+        
+        if not creator_address:
+            return jsonify({"success": False, "error": "Creator address required"}), 400
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Get post details
+        cursor.execute('''
+            SELECT creator_address, title, description, shelby_blob_url
+            FROM posts
+            WHERE id = ?
+        ''', (post_id,))
+        
+        post_row = cursor.fetchone()
+        if not post_row:
+            conn.close()
+            return jsonify({"success": False, "error": "Post not found"}), 404
+        
+        post_creator, post_title, post_description, post_blob_url = post_row
+        
+        if post_creator != creator_address:
+            conn.close()
+            return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+        # Create token for post
+        token_name = f"{post_title[:20]} Token" if post_title else f"Post {post_id} Token"
+        token_symbol = f"POST{post_id}"
+        
+        # Generate unique token ID
+        import hashlib
+        token_id = hashlib.sha256(f"{creator_address}{post_id}{token_name}".encode()).hexdigest()[:16]
+        
+        # Insert token
+        cursor.execute('''
+            INSERT INTO tokens (
+                token_id, creator, token_name, token_symbol, total_supply,
+                current_price, market_cap, content_url, platform
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            token_id, creator_address, token_name, token_symbol,
+            1000000, 0.01, 10000, post_blob_url, 'post'
+        ))
+        
+        # Link post to token
+        cursor.execute('''
+            UPDATE posts SET token_id = ? WHERE id = ?
+        ''', (token_id, post_id))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Post {post_id} tokenized: {token_id}")
+        
+        return jsonify({
+            "success": True,
+            "tokenId": token_id,
+            "tokenName": token_name,
+            "tokenSymbol": token_symbol,
+            "postId": post_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error tokenizing post: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/posts/<int:post_id>/prediction', methods=['POST'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def create_post_prediction(post_id):
+    """Create a prediction market for a post"""
+    try:
+        data = request.get_json()
+        creator_address = data.get('creatorAddress')
+        metric_type = data.get('metricType', 'views')  # views, likes, comments, shares
+        target_value = data.get('targetValue', 1000)
+        expiration_days = data.get('expirationDays', 7)
+        
+        if not creator_address:
+            return jsonify({"success": False, "error": "Creator address required"}), 400
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Get post details
+        cursor.execute('''
+            SELECT creator_address, title, shelby_blob_url
+            FROM posts
+            WHERE id = ?
+        ''', (post_id,))
+        
+        post_row = cursor.fetchone()
+        if not post_row:
+            conn.close()
+            return jsonify({"success": False, "error": "Post not found"}), 404
+        
+        post_creator, post_title, post_blob_url = post_row
+        
+        if post_creator != creator_address:
+            conn.close()
+            return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+        # Create prediction
+        import hashlib
+        from datetime import datetime, timedelta
+        
+        prediction_id = hashlib.sha256(
+            f"{creator_address}{post_id}{metric_type}{target_value}{datetime.now().isoformat()}".encode()
+        ).hexdigest()
+        
+        expiration_date = (datetime.now() + timedelta(days=expiration_days)).isoformat()
+        
+        cursor.execute('''
+            INSERT INTO predictions (
+                prediction_id, creator_address, content_url, platform,
+                metric_type, target_value, expiration_date, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            prediction_id, creator_address, post_blob_url, 'post',
+            metric_type, target_value, expiration_date, 'active'
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Prediction created for post {post_id}: {prediction_id}")
+        
+        return jsonify({
+            "success": True,
+            "predictionId": prediction_id,
+            "postId": post_id,
+            "metricType": metric_type,
+            "targetValue": target_value
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating post prediction: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
 if __name__ == '__main__':
     print("🚀 Starting CreatorVault backend server...")
     print(f"📡 Aptos Testnet: {APTOS_NODE_URL}")
