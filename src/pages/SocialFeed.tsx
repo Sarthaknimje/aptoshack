@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { useWallet } from '../contexts/WalletContext'
-import { getFeed, Post } from '../services/postService'
+import { getFeed, Post, getCreatorPosts } from '../services/postService'
 import PostCard from '../components/PostCard'
 import PremiumBackground from '../components/PremiumBackground'
 import { 
@@ -18,7 +18,9 @@ import {
   Clock,
   Flame,
   TrendingUp,
-  ArrowUp
+  ArrowUp,
+  X,
+  UserCircle
 } from 'lucide-react'
 
 const SocialFeed: React.FC = () => {
@@ -30,10 +32,15 @@ const SocialFeed: React.FC = () => {
   const [sortBy, setSortBy] = useState<'latest' | 'trending' | 'popular'>('latest')
   const [viewMode, setViewMode] = useState<'feed' | 'grid'>('feed')
   const [showScrollTop, setShowScrollTop] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchMode, setSearchMode] = useState<'feed' | 'creator'>(false as any)
+  const [searching, setSearching] = useState(false)
 
   useEffect(() => {
-    loadFeed()
-  }, [contentType, sortBy])
+    if (!searchMode) {
+      loadFeed()
+    }
+  }, [contentType, sortBy, searchMode])
 
   useEffect(() => {
     const handleScroll = () => {
@@ -50,6 +57,54 @@ const SocialFeed: React.FC = () => {
       setPosts(result.posts)
     }
     setLoading(false)
+  }
+
+  const handleSearch = async (query: string) => {
+    if (!query.trim()) {
+      setSearchMode(false as any)
+      setSearchQuery('')
+      loadFeed()
+      return
+    }
+
+    // Check if it looks like an address (starts with 0x and is 66 chars)
+    const isAddress = query.trim().startsWith('0x') && query.trim().length >= 10
+
+    if (isAddress) {
+      setSearching(true)
+      setSearchMode('creator' as any)
+      
+      // Search for creator posts
+      const result = await getCreatorPosts(query.trim(), 1, 50)
+      if (result.success && result.posts) {
+        setPosts(result.posts)
+        setSearchQuery(query.trim())
+      } else {
+        // If no posts found, navigate to creator profile
+        navigate(`/creator/${query.trim()}`)
+        return
+      }
+      setSearching(false)
+    } else {
+      // Filter posts by creator address (partial match)
+      setSearchMode('feed' as any)
+      setSearchQuery(query)
+      const allPosts = await getFeed(1, 100, contentType === 'all' ? undefined : contentType, sortBy)
+      if (allPosts.success && allPosts.posts) {
+        const filtered = allPosts.posts.filter(post => 
+          post.creatorAddress.toLowerCase().includes(query.toLowerCase()) ||
+          post.tokenName?.toLowerCase().includes(query.toLowerCase()) ||
+          post.tokenSymbol?.toLowerCase().includes(query.toLowerCase())
+        )
+        setPosts(filtered)
+      }
+    }
+  }
+
+  const clearSearch = () => {
+    setSearchQuery('')
+    setSearchMode(false as any)
+    loadFeed()
   }
 
   const scrollToTop = () => {
@@ -100,6 +155,57 @@ const SocialFeed: React.FC = () => {
                   <Plus className="w-5 h-5" />
                   Create
                 </motion.button>
+              )}
+            </div>
+
+            {/* Search Bar */}
+            <div className="mb-6">
+              <div className="relative">
+                <div className="absolute left-4 top-1/2 transform -translate-y-1/2 z-10">
+                  <Search className="w-5 h-5 text-gray-400" />
+                </div>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleSearch(searchQuery)
+                    }
+                  }}
+                  placeholder="Search by creator address (0x...) or token name..."
+                  className="w-full pl-12 pr-12 py-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50 transition-all"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={clearSearch}
+                    className="absolute right-4 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                )}
+                {searchQuery && (
+                  <motion.button
+                    onClick={() => handleSearch(searchQuery)}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    disabled={searching}
+                    className="absolute right-12 top-1/2 transform -translate-y-1/2 px-4 py-2 bg-gradient-to-r from-purple-600 to-violet-600 text-white rounded-lg text-sm font-semibold hover:shadow-lg transition-all disabled:opacity-50"
+                  >
+                    {searching ? 'Searching...' : 'Search'}
+                  </motion.button>
+                )}
+              </div>
+              {searchQuery && (
+                <div className="mt-2 flex items-center gap-2 text-xs text-gray-400">
+                  <UserCircle className="w-4 h-4" />
+                  <span>
+                    {searchMode === 'creator' 
+                      ? `Showing posts from ${searchQuery.slice(0, 10)}...`
+                      : `Filtering posts by "${searchQuery}"`
+                    }
+                  </span>
+                </div>
               )}
             </div>
 
