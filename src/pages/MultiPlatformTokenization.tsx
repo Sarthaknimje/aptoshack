@@ -37,6 +37,7 @@ import {
   Upload
 } from 'lucide-react'
 import { useWallet } from '../contexts/WalletContext'
+import { usePhoton } from '../contexts/PhotonContext'
 import { socialMediaService, SocialMediaContent } from '../services/socialMediaService'
 import { createASAWithPetra } from '../services/petraWalletService'
 import TradeSuccessModal from '../components/TradeSuccessModal'
@@ -48,6 +49,7 @@ type Platform = 'youtube' | 'instagram' | 'twitter' | 'linkedin'
 const MultiPlatformTokenization: React.FC = () => {
   const [searchParams] = useSearchParams()
   const { isConnected, address, petraWallet, connectWallet } = useWallet()
+  const { trackTokenCreation } = usePhoton()
   const [selectedPlatform, setSelectedPlatform] = useState<Platform | null>(null)
   const [contentUrl, setContentUrl] = useState('')
   const [scrapedContent, setScrapedContent] = useState<SocialMediaContent | null>(null)
@@ -488,6 +490,14 @@ const MultiPlatformTokenization: React.FC = () => {
       const responseData = await response.json()
       
       console.log('✅ Token creation successful! Closing modal and showing success...')
+      
+      // Track token creation with Photon (unrewarded event)
+      try {
+        await trackTokenCreation(tokenSymbol.toUpperCase())
+        console.log('✅ Photon event tracked for token creation')
+      } catch (photonError) {
+        console.warn('⚠️ Photon tracking failed (non-critical):', photonError)
+      }
       
       // Set success data first
       const successDataObj = {

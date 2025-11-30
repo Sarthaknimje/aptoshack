@@ -37,6 +37,7 @@ import {
   AreaChart
 } from 'recharts'
 import { useWallet } from '../contexts/WalletContext'
+import { usePhoton } from '../contexts/PhotonContext'
 import { PetraWalletIcon, YouTubeIcon, InstagramIcon, TwitterIcon, LinkedInIcon } from '../assets/icons'
 import { TradingService, TradeEstimate } from '../services/tradingService'
 import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract, getTokenBalance, getCurrentSupply, getTotalSupply, getAptReserve, clearSupplyCache, clearAllSupplyCache } from '../services/petraWalletService'
@@ -85,6 +86,7 @@ const TradingMarketplace: React.FC = () => {
   const { symbol } = useParams<{ symbol: string }>()
   const navigate = useNavigate()
   const { isConnected, address, balance, connectWallet, petraWallet, isLoading } = useWallet()
+  const { rewardTokenPurchase, rewardTokenSell } = usePhoton()
   
   const [activeTab, setActiveTab] = useState<'buy' | 'sell'>('buy')
   
@@ -1243,6 +1245,18 @@ const TradingMarketplace: React.FC = () => {
               // Immediately trigger premium content access check (for buy, access should be granted)
               window.dispatchEvent(new CustomEvent('tokenBalanceUpdated'))
               
+              // Reward user with Photon PAT tokens for token purchase
+              try {
+                await rewardTokenPurchase(
+                  tokenData.token_symbol || tokenData.symbol || 'TOKEN',
+                  safeEstimatedTokens,
+                  safeAptPayment
+                )
+                console.log('✅ Photon reward triggered for token purchase')
+              } catch (photonError) {
+                console.warn('⚠️ Photon reward failed (non-critical):', photonError)
+              }
+              
               // Then fetch fresh balance from contract (async, doesn't block)
               setTimeout(() => {
                 console.log(`[TradingMarketplace] Fetching verified balance from contract...`)
@@ -1376,6 +1390,18 @@ const TradingMarketplace: React.FC = () => {
             const balanceIdentifier = tokenData.content_id || tokenData.token_id || ''
             // Immediately trigger premium content access revocation
             window.dispatchEvent(new CustomEvent('tokenBalanceUpdated'))
+            
+            // Reward user with Photon PAT tokens for token sell
+            try {
+              await rewardTokenSell(
+                tokenData.token_symbol || tokenData.symbol || 'TOKEN',
+                tradeAmount,
+                estimate.algo_received || 0
+              )
+              console.log('✅ Photon reward triggered for token sell')
+            } catch (photonError) {
+              console.warn('⚠️ Photon reward failed (non-critical):', photonError)
+            }
             
             // Then fetch fresh balance from contract (async, doesn't block)
             setTimeout(() => {

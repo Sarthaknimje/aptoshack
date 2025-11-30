@@ -3836,6 +3836,62 @@ def get_user_balance_cache():
         logger.error(f"Error getting cached balance: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/photon/generate-jwt', methods=['POST'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def generate_photon_jwt():
+    """
+    Generate a JWT token for Photon user registration
+    This should be done server-side for security
+    """
+    try:
+        data = request.get_json()
+        user_id = data.get('user_id')
+        email = data.get('email', '')
+        name = data.get('name', '')
+        
+        if not user_id:
+            return jsonify({"success": False, "error": "user_id is required"}), 400
+        
+        # Generate JWT payload
+        import time
+        payload = {
+            'user_id': user_id,
+            'email': email,
+            'name': name,
+            'iat': int(time.time()),
+            'exp': int(time.time()) + 3600  # 1 hour expiration
+        }
+        
+        # For production, use PyJWT library: pip install PyJWT
+        # For now, we'll create a simple token structure
+        # In production, properly sign with secret key
+        try:
+            import jwt as pyjwt
+            secret_key = os.getenv('PHOTON_JWT_SECRET', 'photon-secret-key-change-in-production')
+            token = pyjwt.encode(payload, secret_key, algorithm='HS256')
+            jwt_token = token if isinstance(token, str) else token.decode('utf-8')
+        except ImportError:
+            # Fallback: Create a simple token structure (not properly signed)
+            # Install PyJWT for production: pip install PyJWT
+            logger.warning("PyJWT not installed, using fallback JWT generation")
+            import base64
+            import json
+            header = {'alg': 'HS256', 'typ': 'JWT'}
+            encoded_header = base64.urlsafe_b64encode(json.dumps(header).encode()).decode().rstrip('=')
+            encoded_payload = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode().rstrip('=')
+            jwt_token = f"{encoded_header}.{encoded_payload}.signature"
+        
+        logger.info(f"✅ Generated Photon JWT for user: {user_id}")
+        
+        return jsonify({
+            "success": True,
+            "jwt_token": jwt_token
+        })
+    except Exception as e:
+        logger.error(f"Error generating Photon JWT: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/api/scrape-content', methods=['POST', 'OPTIONS'])
 @cross_origin(supports_credentials=True)
 @handle_errors

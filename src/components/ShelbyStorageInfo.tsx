@@ -5,7 +5,7 @@
 
 import React from 'react'
 import { motion } from 'framer-motion'
-import { Database, ExternalLink, Globe, Shield, HardDrive, Link as LinkIcon } from 'lucide-react'
+import { Database, ExternalLink, Globe, Shield, HardDrive } from 'lucide-react'
 
 interface ShelbyStorageInfoProps {
   blobUrl?: string
