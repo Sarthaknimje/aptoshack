@@ -40,7 +40,6 @@ const CreatePost: React.FC = () => {
   const [filePreview, setFilePreview] = useState<string | null>(null)
   const [isPremium, setIsPremium] = useState(false)
   const [minimumBalance, setMinimumBalance] = useState(1)
-  const [isTokenized, setIsTokenized] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
