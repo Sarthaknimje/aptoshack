@@ -3,7 +3,7 @@
  * Handles social media posts and feed
  */
 
-const API_BASE = 'http://localhost:5001/api'
+const API_BASE = (import.meta.env.VITE_BACKEND_URL || import.meta.env.REACT_APP_BACKEND_URL || 'http://localhost:5001') + '/api'
 
 export interface Post {
   postId: number

@@ -4,6 +4,8 @@
  * Uses token gating to control access to premium content
  */
 
+import { BACKEND_URL } from './config'
+
 // Shelby network configuration
 const SHELBY_RPC_ENDPOINT = import.meta.env.VITE_SHELBY_RPC_ENDPOINT || 'https://api.shelbynet.shelby.xyz/shelby'
 const SHELBY_NETWORK = import.meta.env.VITE_SHELBY_NETWORK || 'shelbynet'
@@ -45,7 +47,7 @@ export async function uploadPremiumContent(
     formData.append('expiration', expirationDate.toISOString())
 
     // Upload via backend API
-    const response = await fetch('http://localhost:5001/api/shelby/upload', {
+    const response = await fetch(`${BACKEND_URL}/api/shelby/upload`, {
       method: 'POST',
       body: formData,
     })
@@ -80,7 +82,7 @@ export async function uploadPremiumContent(
 export async function downloadPremiumContent(blobUrl: string): Promise<Blob> {
   try {
     // Download via backend API
-    const response = await fetch(`http://localhost:5001/api/shelby/download?blobUrl=${encodeURIComponent(blobUrl)}`)
+    const response = await fetch(`${BACKEND_URL}/api/shelby/download?blobUrl=${encodeURIComponent(blobUrl)}`)
     
     if (!response.ok) {
       throw new Error('Failed to download premium content')
@@ -101,7 +103,7 @@ export async function downloadPremiumContent(blobUrl: string): Promise<Blob> {
  */
 export async function getBlobMetadata(blobUrl: string): Promise<any> {
   try {
-    const response = await fetch(`http://localhost:5001/api/shelby/metadata?blobUrl=${encodeURIComponent(blobUrl)}`)
+    const response = await fetch(`${BACKEND_URL}/api/shelby/metadata?blobUrl=${encodeURIComponent(blobUrl)}`)
     
     if (!response.ok) {
       throw new Error('Failed to get blob metadata')
@@ -138,7 +140,7 @@ export async function checkPremiumAccess(
     const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
     
     try {
-      const response = await fetch('http://localhost:5001/api/premium/access-token', {
+      const response = await fetch(`${BACKEND_URL}/api/premium/access-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -230,7 +232,7 @@ export async function getPremiumAccessToken(
     const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
     
     try {
-      const response = await fetch('http://localhost:5001/api/premium/access-token', {
+      const response = await fetch(`${BACKEND_URL}/api/premium/access-token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -285,7 +287,7 @@ export async function getPremiumAccessToken(
 export function getPremiumContentUrl(blobUrl: string, accessToken?: string): string {
   // If access token is provided, use secure backend proxy
   if (accessToken) {
-    return `http://localhost:5001/api/premium/content?token=${encodeURIComponent(accessToken)}`
+    return `${BACKEND_URL}/api/premium/content?token=${encodeURIComponent(accessToken)}`
   }
   
   // Fallback to direct URL (less secure, but for backwards compatibility)

@@ -6917,5 +6917,9 @@ if __name__ == '__main__':
     init_db()
     print("💾 SQLite database initialized")
     
-    print("🌐 Server running on http://localhost:5001")
-    app.run(host='0.0.0.0', port=5001, debug=True)
+    # Use PORT from environment (for production) or default to 5001
+    port = int(os.getenv('PORT', 5001))
+    debug = os.getenv('FLASK_ENV') != 'production'
+    
+    print(f"🌐 Server running on http://0.0.0.0:{port}")
+    app.run(host='0.0.0.0', port=port, debug=debug)

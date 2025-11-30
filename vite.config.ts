@@ -35,7 +35,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'algorand-vendor': ['algosdk', '@perawallet/connect'],
           'ui-vendor': ['framer-motion', 'recharts', 'lucide-react'],
         },
       },

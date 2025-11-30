@@ -66,7 +66,7 @@ const PhotonStatus: React.FC = () => {
                              message.includes('Photon Event Details')
         
         if (isPhotonEvent) {
-          const isRewarded = message.includes('Rewarded event') || 
+          let isRewarded = message.includes('Rewarded event') || 
                             message.includes('PAT tokens') ||
                             message.includes('token_purchase') ||
                             message.includes('token_sell')

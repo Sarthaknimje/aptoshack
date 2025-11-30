@@ -245,7 +245,8 @@ export async function generatePhotonJWT(
 ): Promise<string> {
   try {
     // Call backend to generate JWT (secure, server-side)
-    const response = await fetch('http://localhost:5001/api/photon/generate-jwt', {
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || import.meta.env.REACT_APP_BACKEND_URL || 'http://localhost:5001'
+    const response = await fetch(`${backendUrl}/api/photon/generate-jwt`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

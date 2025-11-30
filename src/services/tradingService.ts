@@ -2,7 +2,7 @@
  * Trading Service - Real trading with bonding curves
  */
 
-const BACKEND_URL = 'http://localhost:5001'
+import { BACKEND_URL } from './config'
 
 export interface TradeEstimate {
   algo_cost?: number
