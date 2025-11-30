@@ -2,6 +2,7 @@ import { Routes, Route } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
+import PhotonStatus from './components/PhotonStatus'
 import Home from './pages/Home'
 import Dashboard from './pages/Dashboard'
 import Profile from './pages/Profile'
@@ -41,6 +42,8 @@ function App() {
             </Route>
           </Routes>
         </AnimatePresence>
+        {/* Photon Status Monitor */}
+        <PhotonStatus />
       </div>
     </ErrorBoundary>
   )

@@ -94,6 +94,11 @@ export async function registerPhotonUser(
 
     const data = await response.json()
     console.log('✅ Photon user registered:', data)
+    console.log('📊 Photon Registration Details:', {
+      userId: data.data?.user?.user?.id,
+      walletAddress: data.data?.wallet?.walletAddress,
+      hasAccessToken: !!data.data?.tokens?.access_token
+    })
     return data
   } catch (error) {
     console.error('❌ Error registering Photon user:', error)
@@ -138,7 +143,15 @@ export async function triggerRewardedEvent(
     }
 
     const data = await response.json()
-    console.log(`✅ Rewarded event triggered: ${eventType} - ${data.data.token_amount} PAT tokens`)
+    const tokenAmount = data.data?.token_amount || 0
+    console.log(`✅ Rewarded event triggered: ${eventType} - ${tokenAmount} PAT tokens`)
+    console.log('📊 Photon Event Details:', {
+      eventId,
+      eventType,
+      tokenAmount,
+      campaignId,
+      success: data.success
+    })
     return data
   } catch (error) {
     console.error('❌ Error triggering rewarded event:', error)
@@ -184,6 +197,12 @@ export async function triggerUnrewardedEvent(
 
     const data = await response.json()
     console.log(`✅ Unrewarded event tracked: ${eventType}`)
+    console.log('📊 Photon Event Details:', {
+      eventId,
+      eventType,
+      campaignId,
+      success: data.success
+    })
     return data
   } catch (error) {
     console.error('❌ Error triggering unrewarded event:', error)
