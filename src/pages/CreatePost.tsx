@@ -524,25 +524,25 @@ const CreatePost: React.FC = () => {
             
             <div className="flex gap-4 justify-center">
               <motion.button
+                onClick={() => navigate(`/trade/${createdCoinData.token_symbol}`)}
+                whileHover={{ scale: 1.05, y: -2 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-8 py-4 bg-gradient-to-r from-green-600 via-emerald-600 to-teal-500 text-white rounded-xl font-bold text-lg shadow-2xl hover:shadow-green-500/50 transition-all flex items-center gap-3"
+              >
+                <BarChart3 className="w-6 h-6" />
+                <span>Trade Now</span>
+                <ExternalLink className="w-5 h-5" />
+              </motion.button>
+              <motion.button
                 onClick={() => {
                   setCoinCreated(false)
                   setCreatedCoinData(null)
                 }}
-                whileHover={{ scale: 1.05, y: -2 }}
+                whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className="px-6 py-3 bg-white/10 text-white rounded-xl font-semibold hover:bg-white/20 transition-all"
+                className="px-6 py-4 bg-white/10 text-white rounded-xl font-semibold hover:bg-white/20 transition-all"
               >
-                Continue Creating Posts
-              </motion.button>
-              <motion.button
-                onClick={() => navigate(`/trade/${createdCoinData.token_symbol}`)}
-                whileHover={{ scale: 1.05, y: -2 }}
-                whileTap={{ scale: 0.95 }}
-                className="px-8 py-3 bg-gradient-to-r from-green-600 via-emerald-600 to-teal-500 text-white rounded-xl font-bold shadow-2xl hover:shadow-green-500/50 transition-all flex items-center gap-2"
-              >
-                <BarChart3 className="w-5 h-5" />
-                <span>Trade Now</span>
-                <ExternalLink className="w-4 h-4" />
+                Continue Creating
               </motion.button>
             </div>
           </motion.div>
