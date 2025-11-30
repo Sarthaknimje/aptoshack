@@ -33,7 +33,7 @@ const SocialFeed: React.FC = () => {
   const [viewMode, setViewMode] = useState<'feed' | 'grid'>('feed')
   const [showScrollTop, setShowScrollTop] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [searchMode, setSearchMode] = useState<'feed' | 'creator'>(false as any)
+  const [searchMode, setSearchMode] = useState<'feed' | 'creator' | null>(null)
   const [searching, setSearching] = useState(false)
 
   useEffect(() => {
@@ -61,18 +61,18 @@ const SocialFeed: React.FC = () => {
 
   const handleSearch = async (query: string) => {
     if (!query.trim()) {
-      setSearchMode(false as any)
+      setSearchMode(null)
       setSearchQuery('')
       loadFeed()
       return
     }
 
-    // Check if it looks like an address (starts with 0x and is 66 chars)
+    // Check if it looks like an address (starts with 0x and is at least 10 chars)
     const isAddress = query.trim().startsWith('0x') && query.trim().length >= 10
 
     if (isAddress) {
       setSearching(true)
-      setSearchMode('creator' as any)
+      setSearchMode('creator')
       
       // Search for creator posts
       const result = await getCreatorPosts(query.trim(), 1, 50)
@@ -87,7 +87,7 @@ const SocialFeed: React.FC = () => {
       setSearching(false)
     } else {
       // Filter posts by creator address (partial match)
-      setSearchMode('feed' as any)
+      setSearchMode('feed')
       setSearchQuery(query)
       const allPosts = await getFeed(1, 100, contentType === 'all' ? undefined : contentType, sortBy)
       if (allPosts.success && allPosts.posts) {
@@ -103,7 +103,7 @@ const SocialFeed: React.FC = () => {
 
   const clearSearch = () => {
     setSearchQuery('')
-    setSearchMode(false as any)
+    setSearchMode(null)
     loadFeed()
   }
 
