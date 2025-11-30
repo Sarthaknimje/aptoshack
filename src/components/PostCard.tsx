@@ -21,8 +21,7 @@ import {
   BarChart3,
   Send,
   Verified,
-  ExternalLink,
-  Trash2
+  ExternalLink
 } from 'lucide-react'
 
 interface PostCardProps {
