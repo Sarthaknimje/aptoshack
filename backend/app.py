@@ -929,22 +929,43 @@ def youtube_callback():
         # Build YouTube service
         youtube = build('youtube', 'v3', credentials=credentials)
         
-        # Get channel information
-        channels_response = youtube.channels().list(
-            part='snippet,statistics',
-            mine=True
-        ).execute()
-        
-        if not channels_response['items']:
-            return jsonify({
-                "success": False,
-                "error": "No YouTube channel found"
-            }), 400
-        
-        channel = channels_response['items'][0]
-        channel_id = channel['id']
-        channel_title = channel['snippet']['title']
-        subscribers = int(channel['statistics'].get('subscriberCount', 0))
+        # Get channel information - handle quota errors gracefully
+        try:
+            channels_response = youtube.channels().list(
+                part='snippet,statistics',
+                mine=True
+            ).execute()
+            
+            if not channels_response['items']:
+                return jsonify({
+                    "success": False,
+                    "error": "No YouTube channel found"
+                }), 400
+            
+            channel = channels_response['items'][0]
+            channel_id = channel['id']
+            channel_title = channel['snippet']['title']
+            subscribers = int(channel['statistics'].get('subscriberCount', 0))
+        except HttpError as http_err:
+            # Handle quota exceeded error - connection still succeeds, just can't fetch stats
+            if http_err.resp.status == 403 and 'quotaExceeded' in str(http_err):
+                logger.warning(f"⚠️ YouTube API quota exceeded during callback. Connection successful but stats unavailable.")
+                # Still save the connection, but use minimal data
+                # Try to get channel ID from credentials or use a placeholder
+                channel_id = 'quota_exceeded'
+                channel_title = 'Your Channel'
+                subscribers = 0
+                
+                return jsonify({
+                    "success": True,
+                    "channel_id": channel_id,
+                    "channel_title": channel_title,
+                    "subscribers": subscribers,
+                    "warning": "YouTube API quota exceeded. Connection successful but channel stats are unavailable. Please try again later.",
+                    "quotaExceeded": True
+                }), 200
+            else:
+                raise
         
         # Store credentials in database for persistence across restarts
         session_id = f"yt_session_{secrets.token_hex(8)}"
