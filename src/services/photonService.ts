@@ -216,6 +216,7 @@ export async function triggerUnrewardedEvent(
  * For testing, you can use jwtbuilder.jamiekurtz.com
  * 
  * This function calls the backend to generate a proper JWT
+ * Falls back to using jwtbuilder.jamiekurtz.com format if backend fails
  */
 export async function generatePhotonJWT(
   userId: string,
@@ -236,34 +237,58 @@ export async function generatePhotonJWT(
 
     if (response.ok) {
       const data = await response.json()
-      return data.jwt_token
-    } else {
-      throw new Error('Failed to generate JWT from backend')
+      if (data.jwt_token) {
+        console.log('✅ JWT generated from backend')
+        return data.jwt_token
+      }
     }
-  } catch (error) {
-    console.warn('⚠️ Backend JWT generation failed, using fallback:', error)
-    // Fallback: Generate a simple token for testing
-    // In production, this should always use the backend
-    const header = {
-      alg: 'HS256',
-      typ: 'JWT'
-    }
-
-    const payload = {
-      user_id: userId,
-      email: email,
-      name: name,
-      iat: Math.floor(Date.now() / 1000),
-      exp: Math.floor(Date.now() / 1000) + 3600 // 1 hour
-    }
-
-    // Base64 encode (simplified - use proper JWT library in production)
-    const encodedHeader = btoa(JSON.stringify(header))
-    const encodedPayload = btoa(JSON.stringify(payload))
     
-    // In production, properly sign with HMAC SHA256
-    // For demo, we'll return a simple token
-    return `${encodedHeader}.${encodedPayload}.signature`
+    const errorText = await response.text().catch(() => 'Unknown error')
+    console.warn('⚠️ Backend JWT generation failed:', response.status, errorText)
+    throw new Error(`Backend JWT generation failed: ${response.status}`)
+  } catch (error) {
+    console.warn('⚠️ Backend JWT generation failed, using simple JWT format:', error)
+    
+    // Fallback: Generate a JWT in the format expected by Photon
+    // Based on jwtbuilder.jamiekurtz.com format
+    const now = Math.floor(Date.now() / 1000)
+    
+    const header = {
+      typ: 'JWT',
+      alg: 'HS256'
+    }
+
+    // Payload matching the Postman example format
+    const payload = {
+      iss: 'Online JWT Builder', // Issuer
+      iat: now,
+      exp: now + (365 * 24 * 60 * 60), // 1 year expiration (like Postman example)
+      aud: 'www.example.com', // Audience
+      sub: email, // Subject (email)
+      Email: email, // Additional email field
+      user_id: userId, // User ID
+      name: name || email // Name
+    }
+
+    // Base64 URL encode (not standard base64)
+    const base64UrlEncode = (str: string): string => {
+      return btoa(JSON.stringify(str))
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=/g, '')
+    }
+
+    const encodedHeader = base64UrlEncode(JSON.stringify(header))
+    const encodedPayload = base64UrlEncode(JSON.stringify(payload))
+    
+    // For testing, we'll create an unsigned token (Photon might accept it for testing)
+    // In production, this MUST be properly signed with HMAC SHA256
+    const signature = 'test_signature_not_secure' // This is NOT secure - only for testing
+    
+    const jwt = `${encodedHeader}.${encodedPayload}.${signature}`
+    
+    console.warn('⚠️ Using fallback JWT (not properly signed - for testing only)')
+    return jwt
   }
 }
 

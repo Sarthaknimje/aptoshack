@@ -91,10 +91,20 @@ export const PhotonProvider: React.FC<PhotonProviderProps> = ({ children }) => {
     try {
       const clientUserId = getClientUserId()
       
+      console.log('🔄 Starting Photon registration...', { clientUserId, email, name })
+      
       // Generate JWT token (calls backend for secure generation)
-      const jwtToken = await generatePhotonJWT(clientUserId, email, name)
+      let jwtToken: string
+      try {
+        jwtToken = await generatePhotonJWT(clientUserId, email, name)
+        console.log('✅ JWT token generated:', jwtToken.substring(0, 50) + '...')
+      } catch (jwtError) {
+        console.error('❌ Failed to generate JWT:', jwtError)
+        throw new Error(`JWT generation failed: ${jwtError}`)
+      }
       
       // Register with Photon
+      console.log('🔄 Registering with Photon API...')
       const response = await registerPhotonUser(jwtToken)
       
       if (response.success && response.data) {
@@ -119,10 +129,17 @@ export const PhotonProvider: React.FC<PhotonProviderProps> = ({ children }) => {
         console.log('✅ Photon User ID:', response.data.user.user.id)
         console.log('✅ Photon Wallet:', response.data.wallet.walletAddress)
         console.log('✅ Access Token:', response.data.tokens.access_token.substring(0, 20) + '...')
+      } else {
+        throw new Error('Registration response was not successful')
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Error registering with Photon:', error)
+      console.error('❌ Error details:', {
+        message: error.message,
+        stack: error.stack
+      })
       // Don't throw - allow app to continue without Photon
+      // But log the error for debugging
     } finally {
       setIsLoading(false)
     }
