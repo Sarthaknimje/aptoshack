@@ -54,6 +54,8 @@ const CreatePost: React.FC = () => {
   const [patRewardAmount, setPatRewardAmount] = useState(1)
   const [patRewardType, setPatRewardType] = useState<'post_created' | 'token_created' | 'token_purchase' | 'token_sell'>('post_created')
   const [creatingCoin, setCreatingCoin] = useState(false)
+  const [coinCreated, setCoinCreated] = useState(false)
+  const [createdCoinData, setCreatedCoinData] = useState<any>(null)
 
   // Generate unique creator coin ID based on wallet address
   const getCreatorCoinId = (walletAddress: string): string => {
@@ -226,7 +228,11 @@ const CreatePost: React.FC = () => {
         if (creatorCoinToken) {
           setUserTokens([creatorCoinToken])
           setCreatorCoin(creatorCoinToken)
+          setCreatedCoinData(creatorCoinToken)
           fetchTokenDetails(creatorCoinToken)
+          
+          // Show success state
+          setCoinCreated(true)
         }
       }
 
