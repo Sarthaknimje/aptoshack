@@ -53,14 +53,7 @@ const YouTubeCallback: React.FC = () => {
 
       if (result.success) {
         setStatus('success')
-        
-        // Check if quota was exceeded but connection still succeeded
-        if (result.quotaExceeded) {
-          setMessage(result.warning || 'YouTube channel connected, but API quota exceeded. Using cached data.')
-        } else {
-          setMessage('YouTube channel connected successfully!')
-        }
-        
+        setMessage('YouTube channel connected successfully!')
         setChannelInfo({
           title: result.channel_title,
           id: result.channel_id
@@ -75,12 +68,7 @@ const YouTubeCallback: React.FC = () => {
         }, 2000)
       } else {
         setStatus('error')
-        // Check if it's a quota error
-        if (result.quotaExceeded || result.error?.includes('quota')) {
-          setMessage('YouTube API quota exceeded. Your connection was successful, but we cannot fetch channel stats right now. Please try again in a few hours. The system will use cached data when available.')
-        } else {
-          setMessage(result.error || 'Failed to connect YouTube channel')
-        }
+        setMessage(result.error || 'Failed to connect YouTube channel')
       }
     } catch (error: any) {
       setStatus('error')

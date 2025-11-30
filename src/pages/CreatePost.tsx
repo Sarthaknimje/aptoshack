@@ -6,7 +6,6 @@ import { usePhoton } from '../contexts/PhotonContext'
 import { uploadPremiumContent } from '../services/shelbyService'
 import { createPost } from '../services/postService'
 import { PHOTON_CAMPAIGNS } from '../services/photonService'
-import { createASAWithPetra } from '../services/petraWalletService'
 import PremiumBackground from '../components/PremiumBackground'
 import PatRewardNotification from '../components/PatRewardNotification'
 import ShelbyStorageInfo from '../components/ShelbyStorageInfo'
@@ -53,26 +52,6 @@ const CreatePost: React.FC = () => {
   const [showPatReward, setShowPatReward] = useState(false)
   const [patRewardAmount, setPatRewardAmount] = useState(1)
   const [patRewardType, setPatRewardType] = useState<'post_created' | 'token_created' | 'token_purchase' | 'token_sell'>('post_created')
-  const [creatingCoin, setCreatingCoin] = useState(false)
-  const [coinCreated, setCoinCreated] = useState(false)
-  const [createdCoinData, setCreatedCoinData] = useState<any>(null)
-
-  // Generate unique creator coin ID based on wallet address
-  const getCreatorCoinId = (walletAddress: string): string => {
-    // Use a consistent token ID based on wallet address
-    // This ensures each wallet gets ONE unique creator coin
-    return `creator_${walletAddress.toLowerCase()}`
-  }
-
-  // Generate creator coin name and symbol from address
-  const generateCreatorCoinDetails = (walletAddress: string) => {
-    // Use first 4 and last 4 chars of address for symbol
-    const shortAddr = walletAddress.slice(2, 6).toUpperCase() + walletAddress.slice(-4).toUpperCase()
-    const tokenSymbol = shortAddr
-    const tokenName = `Creator Coin ${shortAddr}`
-    
-    return { tokenName, tokenSymbol }
-  }
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -80,46 +59,23 @@ const CreatePost: React.FC = () => {
       return
     }
 
-    // Fetch user tokens - filter to show only creator coin (not content-specific tokens)
     fetch(`http://localhost:5001/api/user-tokens/${address}`)
       .then(res => res.json())
       .then(data => {
         if (data.success && data.tokens) {
-          // Filter to find creator coin (token_id should match creator_<address>)
-          const creatorCoinId = getCreatorCoinId(address)
-          const creatorCoinToken = data.tokens.find((token: any) => {
-            const tokenId = token.token_id || token.content_id || token.id
-            return tokenId === creatorCoinId || tokenId?.includes('creator_')
-          })
-          
-          if (creatorCoinToken) {
-            setUserTokens([creatorCoinToken])
-            setCreatorCoin(creatorCoinToken)
-            fetchTokenDetails(creatorCoinToken)
-          } else {
-            // No creator coin found - will show create button
-            setUserTokens([])
-            setCreatorCoin(null)
+          setUserTokens(data.tokens)
+          if (data.tokens.length > 0) {
+            setCreatorCoin(data.tokens[0])
+            // Fetch detailed token info for stats
+            fetchTokenDetails(data.tokens[0])
           }
         } else if (data.tokens) {
           const tokens = Array.isArray(data.tokens) ? data.tokens : []
-          const creatorCoinId = getCreatorCoinId(address)
-          const creatorCoinToken = tokens.find((token: any) => {
-            const tokenId = token.token_id || token.content_id || token.id
-            return tokenId === creatorCoinId || tokenId?.includes('creator_')
-          })
-          
-          if (creatorCoinToken) {
-            setUserTokens([creatorCoinToken])
-            setCreatorCoin(creatorCoinToken)
-            fetchTokenDetails(creatorCoinToken)
-          } else {
-            setUserTokens([])
-            setCreatorCoin(null)
+          setUserTokens(tokens)
+          if (tokens.length > 0) {
+            setCreatorCoin(tokens[0])
+            fetchTokenDetails(tokens[0])
           }
-        } else {
-          setUserTokens([])
-          setCreatorCoin(null)
         }
       })
       .catch(err => console.error('Error fetching tokens:', err))
@@ -137,115 +93,6 @@ const CreatePost: React.FC = () => {
       }
     } catch (err) {
       console.error('Error fetching token details:', err)
-    }
-  }
-
-  const handleCreateCreatorCoin = async () => {
-    if (!address || !isConnected) {
-      setError('Please connect your wallet first')
-      return
-    }
-
-    const petraWallet = (window as any).aptos
-    if (!petraWallet) {
-      setError('Petra wallet not found. Please install Petra wallet.')
-      return
-    }
-
-    try {
-      setCreatingCoin(true)
-      setError(null)
-
-      // Generate unique creator coin details
-      const creatorCoinId = getCreatorCoinId(address)
-      const { tokenName, tokenSymbol } = generateCreatorCoinDetails(address)
-
-      console.log('🎯 Creating Creator Coin:', { creatorCoinId, tokenName, tokenSymbol, address })
-
-      // Create token on blockchain
-      const result = await createASAWithPetra({
-        sender: address,
-        petraWallet: petraWallet,
-        tokenId: creatorCoinId, // Unique ID based on wallet address
-        assetName: tokenName,
-        unitName: tokenSymbol,
-        totalSupply: 1000000, // 1M tokens
-        decimals: 0
-      })
-
-      if (!result.txId || result.txId.trim() === '') {
-        throw new Error('Transaction was not submitted. Please approve in Petra wallet.')
-      }
-
-      console.log('✅ Creator Coin created on blockchain:', result.txId)
-
-      // Save to backend
-      const saveResponse = await fetch('http://localhost:5001/api/tokens', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token_id: creatorCoinId,
-          creator: address,
-          token_name: tokenName,
-          token_symbol: tokenSymbol,
-          total_supply: 1000000,
-          current_price: 0.01,
-          market_cap: 10000,
-          platform: 'creatorcoin',
-          metadata_address: result.metadataAddress
-        })
-      })
-
-      const saveData = await saveResponse.json()
-      if (!saveData.success) {
-        throw new Error(saveData.error || 'Failed to save creator coin')
-      }
-
-      console.log('✅ Creator Coin saved to database')
-
-      // Reward PAT token for creating coin
-      try {
-        await trackRewardedEvent(
-          PHOTON_CAMPAIGNS.CREATE_TOKEN || 'ea3bcaca-9ce4-4b54-b803-8b9be1f142ba',
-          PHOTON_CAMPAIGNS.CREATE_TOKEN || 'ea3bcaca-9ce4-4b54-b803-8b9be1f142ba',
-          { token_id: creatorCoinId, token_name: tokenName }
-        )
-        setPatRewardAmount(1)
-        setPatRewardType('token_created')
-        setShowPatReward(true)
-      } catch (photonError) {
-        console.warn('Photon reward failed (non-critical):', photonError)
-      }
-
-      // Refresh token list
-      const refreshResponse = await fetch(`http://localhost:5001/api/user-tokens/${address}`)
-      const refreshData = await refreshResponse.json()
-      if (refreshData.success && refreshData.tokens) {
-        const creatorCoinToken = refreshData.tokens.find((token: any) => {
-          const tokenId = token.token_id || token.content_id || token.id
-          return tokenId === creatorCoinId
-        })
-        if (creatorCoinToken) {
-          setUserTokens([creatorCoinToken])
-          setCreatorCoin(creatorCoinToken)
-          setCreatedCoinData(creatorCoinToken)
-          fetchTokenDetails(creatorCoinToken)
-          
-          // Show success state
-          setCoinCreated(true)
-          
-          // Small delay to show success animation
-          setTimeout(() => {
-            // Keep success state visible
-          }, 2000)
-        }
-      }
-
-    } catch (error: any) {
-      console.error('❌ Error creating creator coin:', error)
-      setError(error.message || 'Failed to create creator coin. Please try again.')
-    } finally {
-      setCreatingCoin(false)
     }
   }
 
@@ -485,68 +332,7 @@ const CreatePost: React.FC = () => {
           </div>
         </motion.div>
 
-        {coinCreated && createdCoinData ? (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-gradient-to-br from-green-900/20 via-emerald-900/20 to-teal-900/20 backdrop-blur-xl border border-green-500/30 rounded-2xl p-10 text-center shadow-2xl"
-          >
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ type: "spring", duration: 0.8, bounce: 0.6 }}
-              className="w-20 h-20 bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl"
-            >
-              <CheckCircle className="w-10 h-10 text-white" />
-            </motion.div>
-            <h3 className="text-3xl font-bold text-white mb-3">
-              Creator Coin <span className="bg-gradient-to-r from-green-400 via-emerald-400 to-teal-400 bg-clip-text text-transparent">Created!</span>
-            </h3>
-            <p className="text-gray-300 mb-2 text-lg">
-              {createdCoinData.token_name} ({createdCoinData.token_symbol})
-            </p>
-            <p className="text-gray-400 mb-8 max-w-md mx-auto">
-              Your creator coin is now live on the Aptos blockchain and available for trading in the marketplace!
-            </p>
-            
-            <div className="grid grid-cols-2 gap-4 mb-8 max-w-xl mx-auto">
-              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                <Coins className="w-6 h-6 text-green-400 mx-auto mb-2" />
-                <div className="text-sm font-semibold text-white">Live on Chain</div>
-                <div className="text-xs text-gray-400 mt-1">Blockchain Verified</div>
-              </div>
-              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                <TrendingUp className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
-                <div className="text-sm font-semibold text-white">Ready to Trade</div>
-                <div className="text-xs text-gray-400 mt-1">In Marketplace</div>
-              </div>
-            </div>
-            
-            <div className="flex gap-4 justify-center">
-              <motion.button
-                onClick={() => navigate(`/trade/${createdCoinData.token_symbol}`)}
-                whileHover={{ scale: 1.05, y: -2 }}
-                whileTap={{ scale: 0.95 }}
-                className="px-8 py-4 bg-gradient-to-r from-green-600 via-emerald-600 to-teal-500 text-white rounded-xl font-bold text-lg shadow-2xl hover:shadow-green-500/50 transition-all flex items-center gap-3"
-              >
-                <BarChart3 className="w-6 h-6" />
-                <span>Trade Now</span>
-                <ExternalLink className="w-5 h-5" />
-              </motion.button>
-              <motion.button
-                onClick={() => {
-                  setCoinCreated(false)
-                  setCreatedCoinData(null)
-                }}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="px-6 py-4 bg-white/10 text-white rounded-xl font-semibold hover:bg-white/20 transition-all"
-              >
-                Continue Creating
-              </motion.button>
-            </div>
-          </motion.div>
-        ) : userTokens.length === 0 ? (
+        {userTokens.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -592,30 +378,17 @@ const CreatePost: React.FC = () => {
             </div>
             
             <motion.button
-              onClick={handleCreateCreatorCoin}
-              disabled={creatingCoin}
-              whileHover={{ scale: creatingCoin ? 1 : 1.05, y: creatingCoin ? 0 : -2 }}
-              whileTap={{ scale: creatingCoin ? 1 : 0.95 }}
-              className="px-8 py-4 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 text-white rounded-xl font-bold text-lg shadow-2xl hover:shadow-purple-500/50 transition-all flex items-center gap-3 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={() => navigate('/tokenize')}
+              whileHover={{ scale: 1.05, y: -2 }}
+              whileTap={{ scale: 0.95 }}
+              className="px-8 py-4 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 text-white rounded-xl font-bold text-lg shadow-2xl hover:shadow-purple-500/50 transition-all flex items-center gap-3 mx-auto"
             >
-              {creatingCoin ? (
-                <>
-                  <Loader className="w-6 h-6 animate-spin" />
-                  <span>Creating...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-6 h-6" />
-                  <span>Create My Creator Coin</span>
-                </>
-              )}
+              <Sparkles className="w-6 h-6" />
+              <span>Create Creator Coin</span>
             </motion.button>
             
             <p className="text-xs text-gray-500 mt-4">
-              {creatingCoin 
-                ? 'Please approve the transaction in Petra wallet to create your coin.'
-                : 'Create your unique creator coin to start monetizing your content.'
-              }
+              You need to create a creator token first before posting content.
             </p>
           </motion.div>
         ) : (

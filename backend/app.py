@@ -929,43 +929,22 @@ def youtube_callback():
         # Build YouTube service
         youtube = build('youtube', 'v3', credentials=credentials)
         
-        # Get channel information - handle quota errors gracefully
-        try:
-            channels_response = youtube.channels().list(
-                part='snippet,statistics',
-                mine=True
-            ).execute()
-            
-            if not channels_response['items']:
-                return jsonify({
-                    "success": False,
-                    "error": "No YouTube channel found"
-                }), 400
-            
-            channel = channels_response['items'][0]
-            channel_id = channel['id']
-            channel_title = channel['snippet']['title']
-            subscribers = int(channel['statistics'].get('subscriberCount', 0))
-        except HttpError as http_err:
-            # Handle quota exceeded error - connection still succeeds, just can't fetch stats
-            if http_err.resp.status == 403 and 'quotaExceeded' in str(http_err):
-                logger.warning(f"⚠️ YouTube API quota exceeded during callback. Connection successful but stats unavailable.")
-                # Still save the connection, but use minimal data
-                # Try to get channel ID from credentials or use a placeholder
-                channel_id = 'quota_exceeded'
-                channel_title = 'Your Channel'
-                subscribers = 0
-                
-                return jsonify({
-                    "success": True,
-                    "channel_id": channel_id,
-                    "channel_title": channel_title,
-                    "subscribers": subscribers,
-                    "warning": "YouTube API quota exceeded. Connection successful but channel stats are unavailable. Please try again later.",
-                    "quotaExceeded": True
-                }), 200
-            else:
-                raise
+        # Get channel information
+        channels_response = youtube.channels().list(
+            part='snippet,statistics',
+            mine=True
+        ).execute()
+        
+        if not channels_response['items']:
+            return jsonify({
+                "success": False,
+                "error": "No YouTube channel found"
+            }), 400
+        
+        channel = channels_response['items'][0]
+        channel_id = channel['id']
+        channel_title = channel['snippet']['title']
+        subscribers = int(channel['statistics'].get('subscriberCount', 0))
         
         # Store credentials in database for persistence across restarts
         session_id = f"yt_session_{secrets.token_hex(8)}"
@@ -1017,22 +996,6 @@ def youtube_callback():
             "subscribers": subscribers
         })
         
-    except HttpError as http_err:
-        # Handle quota exceeded error at top level
-        if http_err.resp.status == 403 and 'quotaExceeded' in str(http_err):
-            logger.error(f"❌ YouTube API quota exceeded during callback: {http_err}")
-            return jsonify({
-                "success": False,
-                "error": "YouTube API quota exceeded. Please try again later. Your connection may still be saved.",
-                "quotaExceeded": True
-            }), 429
-        else:
-            logger.error(f"❌ YouTube callback HTTP error: {http_err}")
-            traceback.print_exc()
-            return jsonify({
-                "success": False,
-                "error": f"YouTube API error: {str(http_err)}"
-            }), 500
     except Exception as e:
         print(f"❌ YouTube callback error: {e}")
         traceback.print_exc()
@@ -1815,114 +1778,6 @@ def get_token_balance(asa_id):
         })
         
     except Exception as e:
-        return jsonify({
-            "success": False,
-            "error": str(e)
-        }), 500
-
-@app.route('/api/tokens', methods=['POST', 'OPTIONS'])
-@cross_origin(supports_credentials=True)
-@handle_errors
-def create_token():
-    """Create a new token (for creator coins and other tokens)"""
-    try:
-        data = request.get_json()
-        
-        # Required fields
-        token_id = data.get('token_id')
-        creator = data.get('creator')
-        token_name = data.get('token_name')
-        token_symbol = data.get('token_symbol')
-        metadata_address = data.get('metadata_address')
-        
-        if not all([token_id, creator, token_name, token_symbol]):
-            return jsonify({
-                "success": False,
-                "error": "Missing required fields: token_id, creator, token_name, token_symbol"
-            }), 400
-        
-        # Initialize bonding curve
-        total_supply = int(data.get('total_supply', 1000000))
-        initial_price = float(data.get('current_price', 0.01))
-        market_cap = float(data.get('market_cap', 10000))
-        
-        bonding_curve_config = None
-        bonding_curve_state = None
-        if BondingCurve is not None:
-            bonding_curve = BondingCurve(
-                initial_price=initial_price,
-                initial_supply=total_supply
-            )
-            bonding_curve_state_obj = BondingCurveState(
-                token_supply=0,
-                algo_reserve=0
-            )
-            bonding_curve_config = json.dumps(bonding_curve.to_dict())
-            bonding_curve_state = json.dumps(bonding_curve_state_obj.to_dict())
-        
-        # Store in database
-        conn = sqlite3.connect('creatorvault.db')
-        cursor = conn.cursor()
-        
-        # Check if token already exists
-        cursor.execute('SELECT token_id FROM tokens WHERE token_id = ?', (token_id,))
-        if cursor.fetchone():
-            conn.close()
-            return jsonify({
-                "success": False,
-                "error": "Token already exists"
-            }), 400
-        
-        # Insert token
-        cursor.execute('''
-            INSERT INTO tokens (
-                token_id, metadata_address, creator, token_name, token_symbol, 
-                total_supply, current_price, market_cap, platform,
-                bonding_curve_config, bonding_curve_state, content_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            token_id,
-            metadata_address or token_id,  # Use token_id as fallback for metadata_address
-            creator,
-            token_name,
-            token_symbol,
-            total_supply,
-            initial_price,
-            market_cap,
-            data.get('platform', 'creatorcoin'),
-            bonding_curve_config,
-            bonding_curve_state,
-            token_id  # content_id same as token_id
-        ))
-        
-        conn.commit()
-        conn.close()
-        
-        logger.info(f"✅ Token created: {token_name} ({token_symbol}) by {creator}")
-        
-        return jsonify({
-            "success": True,
-            "token": {
-                "token_id": token_id,
-                "token_name": token_name,
-                "token_symbol": token_symbol,
-                "creator": creator,
-                "total_supply": total_supply,
-                "current_price": initial_price,
-                "market_cap": market_cap,
-                "platform": data.get('platform', 'creatorcoin')
-            }
-        })
-        
-    except sqlite3.IntegrityError as e:
-        logger.error(f"❌ Database integrity error: {e}")
-        return jsonify({
-            "success": False,
-            "error": "Token already exists"
-        }), 400
-    except Exception as e:
-        logger.error(f"❌ Error creating token: {e}")
-        traceback.print_exc()
         return jsonify({
             "success": False,
             "error": str(e)
@@ -5789,42 +5644,87 @@ def shelby_upload():
             match = re.search(r'explorer\.shelby\.xyz/shelbynet/account/(0x[a-f0-9]{64})', output)
             if match:
                 account_address = match.group(1)
-                logger.info(f"Extracted account address from explorer link: {account_address}")
+                logger.info(f"✅ Extracted account address from explorer link: {account_address}")
             else:
-                # Try to get account from CLI config or use default account
+                # Use shelby account list command to get default account
                 try:
-                    import subprocess
+                    logger.info("📋 Running 'shelby account list' to get account address...")
                     account_result = subprocess.run(
                         ['shelby', 'account', 'list'],
                         capture_output=True,
                         text=True,
                         timeout=10
                     )
+                    logger.info(f"Account list output:\n{account_result.stdout}")
+                    
                     # Parse account address from list output
                     # Format: │ default │ 0x<address> │ ...
                     match = re.search(r'default.*?│\s*(0x[a-f0-9]{64})', account_result.stdout)
                     if match:
                         account_address = match.group(1)
-                        logger.info(f"Extracted account address from account list: {account_address}")
-                except:
+                        logger.info(f"✅ Extracted account address from account list: {account_address}")
+                    else:
+                        # Try alternative format
+                        match = re.search(r'(0x[a-f0-9]{64})', account_result.stdout)
+                        if match:
+                            account_address = match.group(1)
+                            logger.info(f"✅ Extracted account address (alternative format): {account_address}")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not get account from 'shelby account list': {e}")
                     pass
             
             # Use blob_name as the blob identifier (this is what Shelby uses)
             # The blob_name is what appears in the explorer URL
             blob_id = blob_name  # Use the actual blob name, not transaction hash
+            
+            # Try to get blob info using shelby blob command if available
+            blob_info = None
+            if account_address and blob_name:
+                try:
+                    logger.info(f"📦 Running 'shelby blob' command to get blob info for {blob_name}...")
+                    blob_result = subprocess.run(
+                        ['shelby', 'blob', 'info', blob_name],
+                        capture_output=True,
+                        text=True,
+                        timeout=10
+                    )
+                    if blob_result.returncode == 0:
+                        logger.info(f"✅ Blob info retrieved:\n{blob_result.stdout}")
+                        blob_info = blob_result.stdout
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not get blob info: {e}")
+            
+            # Construct blob URL
             blob_url = f"https://api.shelbynet.shelby.xyz/shelby/v1/blobs/{account_address}/{blob_name}" if account_address else f"shelby://{blob_name}"
             
-            # Generate proper explorer URL
-            # Format: https://explorer.shelby.xyz/shelbynet/account/{account}/blobs?name={blob_name}
+            # Generate proper explorer URL - ALWAYS show explorer link
+            # Format: https://explorer.shelbynet.shelby.xyz/account/{account}/blobs?name={blob_name}
             if account_address:
-                explorer_url = f"https://explorer.shelby.xyz/shelbynet/account/{account_address}/blobs?name={blob_name}"
+                explorer_url = f"https://explorer.shelbynet.shelby.xyz/account/{account_address}/blobs?name={blob_name}"
             else:
-                explorer_url = f"https://explorer.shelby.xyz/shelbynet/blob/{blob_name}"  # Fallback
+                # Try to get account address one more time
+                try:
+                    account_result = subprocess.run(
+                        ['shelby', 'account', 'list'],
+                        capture_output=True,
+                        text=True,
+                        timeout=5
+                    )
+                    match = re.search(r'(0x[a-f0-9]{64})', account_result.stdout)
+                    if match:
+                        account_address = match.group(1)
+                        explorer_url = f"https://explorer.shelbynet.shelby.xyz/account/{account_address}/blobs?name={blob_name}"
+                    else:
+                        explorer_url = f"https://explorer.shelbynet.shelby.xyz/blob/{blob_name}"  # Fallback
+                except:
+                    explorer_url = f"https://explorer.shelbynet.shelby.xyz/blob/{blob_name}"  # Fallback
             
             # Generate Aptos transaction explorer URL
             aptos_explorer_url = None
             if transaction_hash:
                 aptos_explorer_url = f"https://explorer.aptoslabs.com/txn/{transaction_hash}?network=shelbynet"
+            
+            logger.info(f"✅ Upload complete! Blob: {blob_name}, Account: {account_address}, Explorer: {explorer_url}")
             
             # Calculate expiration date for response
             from datetime import datetime, timedelta
