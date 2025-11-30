@@ -18,6 +18,8 @@ import CopyTradingDashboard from './pages/CopyTradingDashboard'
 import BotStrategies from './pages/BotStrategies'
 import Referrals from './pages/Referrals'
 import SocialFeed from './pages/SocialFeed'
+import CreatePost from './pages/CreatePost'
+import CreatorProfilePage from './pages/CreatorProfilePage'
 
 function App() {
   return (
@@ -40,6 +42,8 @@ function App() {
               <Route path="predictions" element={<PredictionMarket />} />
               <Route path="referrals" element={<Referrals />} />
               <Route path="feed" element={<SocialFeed />} />
+              <Route path="create-post" element={<CreatePost />} />
+              <Route path="creator/:address" element={<CreatorProfilePage />} />
               <Route path="auth/youtube/callback" element={<YouTubeCallback />} />
             </Route>
           </Routes>

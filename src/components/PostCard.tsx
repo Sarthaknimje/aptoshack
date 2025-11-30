@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { Post, engageWithPost } from '../services/postService'
+import { Post, engageWithPost, getComments, createComment, Comment } from '../services/postService'
 import PremiumContentGate from './PremiumContentGate'
 import { useWallet } from '../contexts/WalletContext'
 import { 
@@ -12,7 +12,9 @@ import {
   TrendingUp,
   Lock,
   Coins,
-  ArrowUpRight
+  ArrowUpRight,
+  X,
+  Send
 } from 'lucide-react'
 
 interface PostCardProps {
@@ -25,6 +27,11 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const [liked, setLiked] = useState(false)
   const [likesCount, setLikesCount] = useState(post.likesCount)
   const [sharesCount, setSharesCount] = useState(post.sharesCount)
+  const [showComments, setShowComments] = useState(false)
+  const [comments, setComments] = useState<Comment[]>([])
+  const [commentText, setCommentText] = useState('')
+  const [loadingComments, setLoadingComments] = useState(false)
+  const [postingComment, setPostingComment] = useState(false)
 
   // Track view on mount
   useEffect(() => {
@@ -62,6 +69,39 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
     navigate(`/trade/${post.tokenSymbol}`)
   }
 
+  const handleShowComments = async () => {
+    if (showComments) {
+      setShowComments(false)
+      return
+    }
+
+    setLoadingComments(true)
+    const result = await getComments(post.postId)
+    if (result.success && result.comments) {
+      setComments(result.comments)
+    }
+    setShowComments(true)
+    setLoadingComments(false)
+  }
+
+  const handlePostComment = async () => {
+    if (!isConnected || !address || !commentText.trim()) {
+      return
+    }
+
+    setPostingComment(true)
+    const result = await createComment(post.postId, address, commentText)
+    if (result.success) {
+      setCommentText('')
+      // Reload comments
+      const commentsResult = await getComments(post.postId)
+      if (commentsResult.success && commentsResult.comments) {
+        setComments(commentsResult.comments)
+      }
+    }
+    setPostingComment(false)
+  }
+
   return (
     <motion.div
       whileHover={{ scale: 1.01 }}
@@ -70,18 +110,24 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 rounded-full flex items-center justify-center">
+          <button
+            onClick={() => navigate(`/creator/${post.creatorAddress}`)}
+            className="w-12 h-12 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 rounded-full flex items-center justify-center hover:scale-110 transition-transform cursor-pointer"
+          >
             <span className="text-white font-bold text-lg">
               {post.tokenName.charAt(0).toUpperCase()}
             </span>
-          </div>
+          </button>
           <div>
-            <div className="flex items-center gap-2">
+            <button
+              onClick={() => navigate(`/creator/${post.creatorAddress}`)}
+              className="flex items-center gap-2 hover:text-purple-400 transition-colors"
+            >
               <h3 className="text-white font-bold text-lg">{post.tokenName}</h3>
               {post.isPremium && (
                 <Lock className="w-4 h-4 text-amber-400" />
               )}
-            </div>
+            </button>
             <div className="flex items-center gap-3 text-sm">
               <span className="text-cyan-400 font-semibold">
                 ${post.tokenPrice.toFixed(6)}
@@ -183,10 +229,15 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
           <span className="font-semibold">{likesCount}</span>
         </motion.button>
         
-        <button className="flex items-center gap-2 text-gray-400 hover:text-blue-400 transition-colors">
+        <motion.button
+          onClick={handleShowComments}
+          whileHover={{ scale: 1.1 }}
+          whileTap={{ scale: 0.9 }}
+          className="flex items-center gap-2 text-gray-400 hover:text-blue-400 transition-colors"
+        >
           <MessageCircle className="w-5 h-5" />
           <span className="font-semibold">{post.commentsCount}</span>
-        </button>
+        </motion.button>
         
         <motion.button
           onClick={handleShare}
@@ -203,6 +254,74 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
           <span>{post.viewsCount} views</span>
         </div>
       </div>
+
+      {/* Comments Section */}
+      <AnimatePresence>
+        {showComments && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mt-4 pt-4 border-t border-white/10"
+          >
+            {loadingComments ? (
+              <div className="text-center py-4 text-gray-400">Loading comments...</div>
+            ) : (
+              <>
+                {/* Comment Input */}
+                {isConnected && address && (
+                  <div className="mb-4 flex gap-2">
+                    <input
+                      type="text"
+                      value={commentText}
+                      onChange={(e) => setCommentText(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handlePostComment()}
+                      placeholder="Write a comment..."
+                      className="flex-1 bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-purple-500/50"
+                    />
+                    <motion.button
+                      onClick={handlePostComment}
+                      disabled={!commentText.trim() || postingComment}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {postingComment ? (
+                        <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      ) : (
+                        <Send className="w-5 h-5" />
+                      )}
+                    </motion.button>
+                  </div>
+                )}
+
+                {/* Comments List */}
+                <div className="space-y-3 max-h-64 overflow-y-auto">
+                  {comments.length === 0 ? (
+                    <div className="text-center py-4 text-gray-400">No comments yet</div>
+                  ) : (
+                    comments.map((comment) => (
+                      <div key={comment.id} className="bg-white/5 rounded-lg p-3">
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="w-6 h-6 bg-gradient-to-r from-purple-600 to-violet-600 rounded-full flex items-center justify-center">
+                            <span className="text-white text-xs font-bold">
+                              {comment.userAddress.slice(2, 4).toUpperCase()}
+                            </span>
+                          </div>
+                          <span className="text-gray-400 text-xs">
+                            {comment.userAddress.slice(0, 6)}...{comment.userAddress.slice(-4)}
+                          </span>
+                        </div>
+                        <p className="text-gray-300 text-sm">{comment.commentText}</p>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }

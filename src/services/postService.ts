@@ -121,3 +121,81 @@ export async function engageWithPost(
   }
 }
 
+export interface Comment {
+  id: number
+  userAddress: string
+  commentText: string
+  shelbyBlobId?: string
+  createdAt: string
+}
+
+export async function getComments(postId: number): Promise<{ success: boolean; comments?: Comment[]; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE}/posts/${postId}/comments`)
+    
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to get comments')
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error getting comments:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+export async function createComment(
+  postId: number,
+  userAddress: string,
+  commentText: string,
+  shelbyBlobId?: string
+): Promise<{ success: boolean; commentId?: number; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE}/posts/${postId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        userAddress,
+        commentText,
+        shelbyBlobId
+      })
+    })
+    
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to create comment')
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error creating comment:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+
+export async function getCreatorPosts(
+  creatorAddress: string,
+  page: number = 1,
+  limit: number = 20
+): Promise<{ success: boolean; posts?: Post[]; creator?: any; error?: string }> {
+  try {
+    const params = new URLSearchParams({
+      page: String(page),
+      limit: String(limit)
+    })
+    
+    const response = await fetch(`${API_BASE}/creators/${creatorAddress}/posts?${params}`)
+    
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to get creator posts')
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error getting creator posts:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+

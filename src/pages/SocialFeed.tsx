@@ -13,11 +13,15 @@ import {
   Video,
   FileText,
   Music,
-  Zap
+  Zap,
+  Plus
 } from 'lucide-react'
 import PremiumBackground from '../components/PremiumBackground'
+import { useNavigate } from 'react-router-dom'
+import { useWallet } from '../contexts/WalletContext'
 
 const SocialFeed: React.FC = () => {
+  const navigate = useNavigate()
   const { address, isConnected } = useWallet()
   const [posts, setPosts] = useState<Post[]>([])
   const [loading, setLoading] = useState(true)
@@ -48,16 +52,29 @@ const SocialFeed: React.FC = () => {
           animate={{ opacity: 1, y: 0 }}
           className="mb-8"
         >
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 rounded-xl flex items-center justify-center shadow-lg">
-              <Sparkles className="w-6 h-6 text-white" />
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 rounded-xl flex items-center justify-center shadow-lg">
+                <Sparkles className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h1 className="text-3xl md:text-4xl font-bold text-white">
+                  Social <span className="bg-gradient-to-r from-purple-400 via-violet-400 to-cyan-400 bg-clip-text text-transparent">Feed</span>
+                </h1>
+                <p className="text-gray-400 text-sm mt-1">Discover creators and invest in their success</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-3xl md:text-4xl font-bold text-white">
-                Social <span className="bg-gradient-to-r from-purple-400 via-violet-400 to-cyan-400 bg-clip-text text-transparent">Feed</span>
-              </h1>
-              <p className="text-gray-400 text-sm mt-1">Discover creators and invest in their success</p>
-            </div>
+            {isConnected && (
+              <motion.button
+                onClick={() => navigate('/create-post')}
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-6 py-3 bg-gradient-to-r from-purple-600 to-violet-600 text-white rounded-lg font-semibold flex items-center gap-2 hover:shadow-lg hover:shadow-purple-500/25 transition-all"
+              >
+                <Plus className="w-5 h-5" />
+                Create Post
+              </motion.button>
+            )}
           </div>
         </motion.div>
 

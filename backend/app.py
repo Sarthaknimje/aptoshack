@@ -6282,6 +6282,180 @@ def engage_with_post(post_id):
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
+# ==================== COMMENTS API ====================
+
+@app.route('/api/posts/<int:post_id>/comments', methods=['GET'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def get_comments(post_id):
+    """Get comments for a post"""
+    try:
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            SELECT id, user_address, comment_text, shelby_blob_id, created_at
+            FROM comments
+            WHERE post_id = ?
+            ORDER BY created_at DESC
+        ''', (post_id,))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        comments = []
+        for row in rows:
+            comments.append({
+                "id": row[0],
+                "userAddress": row[1],
+                "commentText": row[2],
+                "shelbyBlobId": row[3],
+                "createdAt": row[4]
+            })
+        
+        return jsonify({"success": True, "comments": comments})
+        
+    except Exception as e:
+        logger.error(f"Error getting comments: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/posts/<int:post_id>/comments', methods=['POST'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def create_comment(post_id):
+    """Create a comment on a post"""
+    try:
+        data = request.get_json()
+        user_address = data.get('userAddress')
+        comment_text = data.get('commentText', '')
+        shelby_blob_id = data.get('shelbyBlobId')
+        
+        if not user_address or not comment_text:
+            return jsonify({"success": False, "error": "Missing required parameters"}), 400
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Verify post exists
+        cursor.execute('SELECT id FROM posts WHERE id = ?', (post_id,))
+        if not cursor.fetchone():
+            conn.close()
+            return jsonify({"success": False, "error": "Post not found"}), 404
+        
+        # Insert comment
+        cursor.execute('''
+            INSERT INTO comments (post_id, user_address, comment_text, shelby_blob_id)
+            VALUES (?, ?, ?, ?)
+        ''', (post_id, user_address, comment_text, shelby_blob_id))
+        
+        comment_id = cursor.lastrowid
+        
+        # Update post comment count
+        cursor.execute('UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?', (post_id,))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Comment created: ID={comment_id}, Post={post_id}")
+        
+        return jsonify({
+            "success": True,
+            "commentId": comment_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating comment: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# ==================== CREATOR PROFILE API ====================
+
+@app.route('/api/creators/<creator_address>/posts', methods=['GET'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def get_creator_posts(creator_address):
+    """Get all posts from a creator"""
+    try:
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 20))
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Get creator's token info
+        cursor.execute('''
+            SELECT token_id, token_name, token_symbol, current_price, market_cap
+            FROM tokens
+            WHERE creator = ?
+            LIMIT 1
+        ''', (creator_address,))
+        
+        token_row = cursor.fetchone()
+        if not token_row:
+            conn.close()
+            return jsonify({"success": False, "error": "Creator not found"}), 404
+        
+        token_id, token_name, token_symbol, token_price, market_cap = token_row
+        
+        # Get posts
+        cursor.execute('''
+            SELECT p.*, t.token_name, t.token_symbol, t.current_price, t.market_cap, t.creator, t.content_thumbnail
+            FROM posts p
+            LEFT JOIN tokens t ON p.token_id = t.token_id
+            WHERE p.creator_address = ?
+            ORDER BY p.created_at DESC
+            LIMIT ? OFFSET ?
+        ''', (creator_address, limit, (page - 1) * limit))
+        
+        rows = cursor.fetchall()
+        conn.close()
+        
+        posts = []
+        for row in rows:
+            posts.append({
+                "postId": row[0],
+                "creatorAddress": row[1],
+                "tokenId": row[2],
+                "contentType": row[3],
+                "shelbyBlobId": row[4],
+                "shelbyBlobUrl": row[5],
+                "title": row[6],
+                "description": row[7],
+                "isPremium": bool(row[8]),
+                "minimumBalance": row[9],
+                "likesCount": row[10],
+                "commentsCount": row[11],
+                "sharesCount": row[12],
+                "viewsCount": row[13],
+                "createdAt": row[14],
+                "tokenName": row[15],
+                "tokenSymbol": row[16],
+                "tokenPrice": row[17] or 0,
+                "marketCap": row[18] or 0,
+                "creator": row[19],
+                "thumbnail": row[20]
+            })
+        
+        return jsonify({
+            "success": True,
+            "posts": posts,
+            "creator": {
+                "address": creator_address,
+                "tokenId": token_id,
+                "tokenName": token_name,
+                "tokenSymbol": token_symbol,
+                "tokenPrice": token_price,
+                "marketCap": market_cap
+            },
+            "page": page,
+            "hasMore": len(posts) == limit
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting creator posts: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
 if __name__ == '__main__':
     print("🚀 Starting CreatorVault backend server...")
     print(f"📡 Aptos Testnet: {APTOS_NODE_URL}")
