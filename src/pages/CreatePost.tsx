@@ -16,7 +16,8 @@ import {
   Loader,
   CheckCircle,
   Lock,
-  Coins
+  Coins,
+  ExternalLink
 } from 'lucide-react'
 
 const CreatePost: React.FC = () => {
