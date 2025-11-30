@@ -56,8 +56,6 @@ const CreatePost: React.FC = () => {
   const [creatingCoin, setCreatingCoin] = useState(false)
   const [coinCreated, setCoinCreated] = useState(false)
   const [createdCoinData, setCreatedCoinData] = useState<any>(null)
-  const [coinCreated, setCoinCreated] = useState(false)
-  const [createdCoinData, setCreatedCoinData] = useState<any>(null)
 
   // Generate unique creator coin ID based on wallet address
   const getCreatorCoinId = (walletAddress: string): string => {
@@ -549,11 +547,10 @@ const CreatePost: React.FC = () => {
             </div>
           </motion.div>
         ) : userTokens.length === 0 ? (
-        {coinCreated && createdCoinData ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-gradient-to-br from-green-900/20 via-emerald-900/20 to-teal-900/20 backdrop-blur-xl border border-green-500/30 rounded-2xl p-10 text-center shadow-2xl"
+            className="bg-gradient-to-br from-purple-900/20 via-violet-900/20 to-amber-900/20 backdrop-blur-xl border border-purple-500/30 rounded-2xl p-10 text-center shadow-2xl"
           >
             <motion.div
               initial={{ scale: 0 }}
