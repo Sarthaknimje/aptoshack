@@ -5781,72 +5781,52 @@ def shelby_account_balance():
         
         # Parse APT balance - look for pattern like "29.989454 APT" in the table
         apt_balance = 0
-        # Try multiple patterns to match the table format
-        apt_patterns = [
-            r'APT\s+\│\s+[^\│]+\│\s+([\d.]+)\s+APT',  # Table format: APT | ... | 29.989454 APT
-            r'│\s+APT\s+│[^\│]+\│\s+([\d.]+)\s+APT',  # Alternative table format
-            r'APT[:\s]+([\d.]+)\s+APT',  # Simple format
-            r'Balance[^\n]*\n[^\n]*\n[^\n]*APT[^\n]*([\d.]+)',  # Multi-line format
-        ]
+        # The table format is: │ APT     │ ... │ 29.989454 APT    │
+        # We need to match the number in the Balance column (3rd column)
+        apt_match = re.search(r'│\s+APT\s+│[^│]+│\s+([\d.]+)\s+APT', output, re.IGNORECASE | re.MULTILINE)
+        if apt_match:
+            try:
+                apt_balance = float(apt_match.group(1))
+                logger.info(f"✅ Parsed APT balance: {apt_balance}")
+            except ValueError:
+                logger.warning(f"Failed to parse APT balance from: {apt_match.group(1)}")
         
-        for pattern in apt_patterns:
-            apt_match = re.search(pattern, output, re.IGNORECASE | re.MULTILINE)
-            if apt_match:
-                try:
-                    apt_balance = float(apt_match.group(1))
-                    logger.info(f"✅ Parsed APT balance: {apt_balance}")
-                    break
-                except ValueError:
-                    continue
-        
-        # Parse ShelbyUSD balance - look for pattern in the table
+        # Parse ShelbyUSD balance - the table has ShelbyUSD split across lines
+        # Format: │ ShelbyU │ ... │ 29.79001344      │
+        #         │ SD      │ ... │ ShelbyUSD        │
         shelbyusd_balance = 0
-        # Try multiple patterns
-        usd_patterns = [
-            r'ShelbyU[^\n]*\n[^\│]*\│\s+([\d.]+)\s+ShelbyUSD',  # Table format with line break
-            r'│\s+ShelbyU[^\│]+\│\s+([\d.]+)\s+ShelbyUSD',  # Table format
-            r'ShelbyUSD[:\s]+([\d.]+)',  # Simple format
-            r'([\d.]+)\s+ShelbyUSD',  # Just number before ShelbyUSD
-        ]
+        # Match the number in the Balance column before "ShelbyUSD" appears
+        usd_match = re.search(r'│\s+ShelbyU[^│]+│[^│]+│\s+([\d.]+)\s+│', output, re.IGNORECASE | re.MULTILINE)
+        if usd_match:
+            try:
+                shelbyusd_balance = float(usd_match.group(1))
+                logger.info(f"✅ Parsed ShelbyUSD balance: {shelbyusd_balance}")
+            except ValueError:
+                logger.warning(f"Failed to parse ShelbyUSD balance from: {usd_match.group(1)}")
         
-        for pattern in usd_patterns:
-            usd_match = re.search(pattern, output, re.IGNORECASE | re.MULTILINE)
-            if usd_match:
-                try:
-                    shelbyusd_balance = float(usd_match.group(1))
-                    logger.info(f"✅ Parsed ShelbyUSD balance: {shelbyusd_balance}")
-                    break
-                except ValueError:
-                    continue
-        
-        # If still not found, try parsing the table rows directly
+        # If still not found, try line-by-line parsing
         if apt_balance == 0 or shelbyusd_balance == 0:
-            # Look for table rows
             lines = output.split('\n')
             for i, line in enumerate(lines):
-                # APT row
-                if '│ APT' in line or '│ APT     │' in line:
-                    # Next line should have the balance
-                    if i + 1 < len(lines):
-                        next_line = lines[i + 1]
-                        apt_match = re.search(r'│\s+([\d.]+)\s+APT', next_line)
-                        if apt_match:
-                            try:
-                                apt_balance = float(apt_match.group(1))
-                                logger.info(f"✅ Parsed APT balance from table: {apt_balance}")
-                            except ValueError:
-                                pass
+                # APT row - look for line containing "│ APT" and extract balance from same line
+                if '│ APT' in line and 'APT' in line:
+                    # Match: │ APT     │ ... │ 29.989454 APT    │
+                    apt_match = re.search(r'│\s+APT\s+│[^│]+│\s+([\d.]+)\s+APT', line)
+                    if apt_match:
+                        try:
+                            apt_balance = float(apt_match.group(1))
+                            logger.info(f"✅ Parsed APT balance from line: {apt_balance}")
+                        except ValueError:
+                            pass
                 
-                # ShelbyUSD row
-                if '│ ShelbyU' in line or 'ShelbyUSD' in line:
-                    # Look in the same line or next line
-                    usd_match = re.search(r'│\s+([\d.]+)\s+ShelbyUSD', line)
-                    if not usd_match and i + 1 < len(lines):
-                        usd_match = re.search(r'│\s+([\d.]+)\s+ShelbyUSD', lines[i + 1])
+                # ShelbyUSD row - look for line with "│ ShelbyU" and extract number from same line
+                if '│ ShelbyU' in line:
+                    # Match: │ ShelbyU │ ... │ 29.79001344      │
+                    usd_match = re.search(r'│\s+ShelbyU[^│]+│[^│]+│\s+([\d.]+)\s+│', line)
                     if usd_match:
                         try:
                             shelbyusd_balance = float(usd_match.group(1))
-                            logger.info(f"✅ Parsed ShelbyUSD balance from table: {shelbyusd_balance}")
+                            logger.info(f"✅ Parsed ShelbyUSD balance from line: {shelbyusd_balance}")
                         except ValueError:
                             pass
         
