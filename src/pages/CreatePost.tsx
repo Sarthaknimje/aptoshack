@@ -480,7 +480,68 @@ const CreatePost: React.FC = () => {
           </div>
         </motion.div>
 
-        {userTokens.length === 0 ? (
+        {coinCreated && createdCoinData ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="bg-gradient-to-br from-green-900/20 via-emerald-900/20 to-teal-900/20 backdrop-blur-xl border border-green-500/30 rounded-2xl p-10 text-center shadow-2xl"
+          >
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ type: "spring", duration: 0.8, bounce: 0.6 }}
+              className="w-20 h-20 bg-gradient-to-r from-green-500 to-emerald-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl"
+            >
+              <CheckCircle className="w-10 h-10 text-white" />
+            </motion.div>
+            <h3 className="text-3xl font-bold text-white mb-3">
+              Creator Coin <span className="bg-gradient-to-r from-green-400 via-emerald-400 to-teal-400 bg-clip-text text-transparent">Created!</span>
+            </h3>
+            <p className="text-gray-300 mb-2 text-lg">
+              {createdCoinData.token_name} ({createdCoinData.token_symbol})
+            </p>
+            <p className="text-gray-400 mb-8 max-w-md mx-auto">
+              Your creator coin is now live on the Aptos blockchain and available for trading in the marketplace!
+            </p>
+            
+            <div className="grid grid-cols-2 gap-4 mb-8 max-w-xl mx-auto">
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <Coins className="w-6 h-6 text-green-400 mx-auto mb-2" />
+                <div className="text-sm font-semibold text-white">Live on Chain</div>
+                <div className="text-xs text-gray-400 mt-1">Blockchain Verified</div>
+              </div>
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <TrendingUp className="w-6 h-6 text-emerald-400 mx-auto mb-2" />
+                <div className="text-sm font-semibold text-white">Ready to Trade</div>
+                <div className="text-xs text-gray-400 mt-1">In Marketplace</div>
+              </div>
+            </div>
+            
+            <div className="flex gap-4 justify-center">
+              <motion.button
+                onClick={() => {
+                  setCoinCreated(false)
+                  setCreatedCoinData(null)
+                }}
+                whileHover={{ scale: 1.05, y: -2 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-6 py-3 bg-white/10 text-white rounded-xl font-semibold hover:bg-white/20 transition-all"
+              >
+                Continue Creating Posts
+              </motion.button>
+              <motion.button
+                onClick={() => navigate(`/trade/${createdCoinData.token_symbol}`)}
+                whileHover={{ scale: 1.05, y: -2 }}
+                whileTap={{ scale: 0.95 }}
+                className="px-8 py-3 bg-gradient-to-r from-green-600 via-emerald-600 to-teal-500 text-white rounded-xl font-bold shadow-2xl hover:shadow-green-500/50 transition-all flex items-center gap-2"
+              >
+                <BarChart3 className="w-5 h-5" />
+                <span>Trade Now</span>
+                <ExternalLink className="w-4 h-4" />
+              </motion.button>
+            </div>
+          </motion.div>
+        ) : userTokens.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
