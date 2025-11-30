@@ -5764,6 +5764,7 @@ def verify_token_balance_on_chain(user_address: str, creator_address: str, token
         # Try new contract first
         for module_address in [MODULE_ADDRESS, OLD_MODULE_ADDRESS]:
             try:
+                # Use shorter timeout to prevent hanging
                 response = requests.post(
                     f"{APTOS_NODE_URL}/v1/view",
                     json={
@@ -5771,37 +5772,58 @@ def verify_token_balance_on_chain(user_address: str, creator_address: str, token
                         "type_arguments": [],
                         "arguments": [creator_address, token_id_hex, user_address]
                     },
-                    timeout=10
+                    timeout=5  # Reduced timeout to 5 seconds
                 )
                 
                 if response.status_code == 200:
                     data = response.json()
                     balance = int(data[0] or '0', 10)
-                    logger.info(f"Token balance verified: {balance} tokens for {user_address} (contract: {module_address[:10]}...)")
-                    return balance >= minimum_balance
+                    logger.info(f"✅ Token balance verified: {balance} tokens for {user_address[:10]}... (contract: {module_address[:10]}..., minimum: {minimum_balance})")
+                    has_access = balance >= minimum_balance
+                    logger.info(f"✅ Access result: {has_access} (balance: {balance} >= minimum: {minimum_balance})")
+                    return has_access
                 elif response.status_code == 429:
-                    # Rate limit - wait and retry
-                    logger.warning(f"Rate limit (429) when checking balance with {module_address[:10]}..., waiting...")
-                    time.sleep(2)
+                    # Rate limit - wait and retry once
+                    logger.warning(f"⚠️ Rate limit (429) when checking balance with {module_address[:10]}..., waiting 1s...")
+                    time.sleep(1)
+                    # Try one more time with this contract
+                    try:
+                        response = requests.post(
+                            f"{APTOS_NODE_URL}/v1/view",
+                            json={
+                                "function": f"{module_address}::creator_token::get_balance",
+                                "type_arguments": [],
+                                "arguments": [creator_address, token_id_hex, user_address]
+                            },
+                            timeout=5
+                        )
+                        if response.status_code == 200:
+                            data = response.json()
+                            balance = int(data[0] or '0', 10)
+                            logger.info(f"✅ Token balance verified (retry): {balance} tokens for {user_address[:10]}...")
+                            return balance >= minimum_balance
+                    except:
+                        pass
+                    # If retry failed, try next contract
                     continue
                 elif response.status_code == 400:
                     # Check if it's a token not found error
                     try:
                         error_data = response.json()
                         if error_data.get('vm_error_code') == 4016 or 'E_TOKEN_NOT_FOUND' in str(error_data):
-                            logger.warning(f"Token not found in {module_address[:10]}... (E_TOKEN_NOT_FOUND)")
+                            logger.warning(f"⚠️ Token not found in {module_address[:10]}... (E_TOKEN_NOT_FOUND), trying next contract")
                             # Try next contract
                             continue
                     except:
                         pass
                     # Other 400 error - log and try next contract
-                    logger.warning(f"400 error when checking balance with {module_address[:10]}...: {response.text[:200]}")
+                    logger.warning(f"⚠️ 400 error when checking balance with {module_address[:10]}...: {response.text[:200]}")
                     continue
             except requests.exceptions.Timeout:
-                logger.warning(f"Timeout checking balance with {module_address[:10]}...")
+                logger.warning(f"⚠️ Timeout checking balance with {module_address[:10]}..., trying next contract")
                 continue
             except Exception as e:
-                logger.warning(f"Error checking balance with {module_address[:10]}...: {e}")
+                logger.warning(f"⚠️ Error checking balance with {module_address[:10]}...: {e}")
                 continue
         
         logger.warning(f"Failed to verify token balance for {user_address} - tried both contracts")
@@ -5834,18 +5856,58 @@ def get_premium_access_token():
         # Log the request for debugging
         logger.info(f"🔐 Premium access check: user={user_address[:10] if user_address else 'None'}..., creator={creator_address[:10] if creator_address else 'None'}..., token_id={str(token_id)[:20] if token_id else 'None'}...")
         
-        # Verify token balance on-chain
-        has_access = verify_token_balance_on_chain(user_address, creator_address, token_id, minimum_balance)
+        # Verify token balance on-chain with timeout protection
+        try:
+            # Add timeout wrapper for balance check
+            import signal
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError("Balance check timeout")
+            
+            # Set timeout (Unix only - for Windows, we rely on requests timeout)
+            if hasattr(signal, 'SIGALRM'):
+                signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(10)  # 10 second timeout
+            
+            try:
+                has_access = verify_token_balance_on_chain(user_address, creator_address, token_id, minimum_balance)
+            finally:
+                if hasattr(signal, 'SIGALRM'):
+                    signal.alarm(0)  # Cancel timeout
+        except TimeoutError:
+            logger.error(f"⏱️ Balance check timeout for {user_address}")
+            return jsonify({
+                "success": False,
+                "error": "Balance check timeout - please try again",
+                "hasAccess": False
+            }), 504  # Gateway Timeout
+        except Exception as e:
+            logger.error(f"❌ Error verifying balance: {e}")
+            return jsonify({
+                "success": False,
+                "error": f"Error verifying balance: {str(e)}",
+                "hasAccess": False
+            }), 500
         
         logger.info(f"🔐 Premium access result: {has_access} (minimum: {minimum_balance})")
         
         if not has_access:
-            logger.warning(f"Access denied for {user_address} - insufficient token balance")
+            logger.warning(f"❌ Access denied for {user_address} - insufficient token balance (minimum: {minimum_balance})")
             return jsonify({
                 "success": False,
                 "error": "Insufficient token balance",
-                "hasAccess": False
+                "hasAccess": False,
+                "minimumBalance": minimum_balance
             }), 403
+        
+        # If this is just an access check (blobUrl is placeholder), return early
+        if blob_url == 'check-access-only' or not blob_url:
+            logger.info(f"✅ Access check only - returning hasAccess: True")
+            return jsonify({
+                "success": True,
+                "hasAccess": True,
+                "message": "Access granted"
+            }), 200
         
         # Generate time-limited access token (valid for 10 minutes)
         from datetime import datetime, timedelta

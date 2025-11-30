@@ -121,42 +121,76 @@ export async function checkPremiumAccess(
   minimumBalance: number = 1
 ): Promise<boolean> {
   try {
-    // Use backend verification for security (server-side check)
-    // Note: blobUrl is optional for access checks
-    const response = await fetch('http://localhost:5001/api/premium/access-token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userAddress,
-        creatorAddress,
-        tokenId,
-        blobUrl: 'check-access-only', // Placeholder for validation (backend makes it optional)
-        minimumBalance
-      })
-    })
+    console.log(`[checkPremiumAccess] Checking access: user=${userAddress.slice(0, 10)}..., creator=${creatorAddress.slice(0, 10)}..., tokenId=${String(tokenId).slice(0, 20)}...`)
     
-    if (response.ok) {
-      const data = await response.json()
-      return data.hasAccess === true
-    } else if (response.status === 403) {
-      // Access denied - insufficient balance
-      return false
-    } else {
-      // Fallback to frontend check if backend fails
-      console.warn('Backend access check failed, falling back to frontend check')
+    // Use backend verification for security (server-side check)
+    // Add timeout to prevent hanging
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+    
+    try {
+      const response = await fetch('http://localhost:5001/api/premium/access-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress,
+          creatorAddress,
+          tokenId: String(tokenId), // Ensure tokenId is string
+          blobUrl: 'check-access-only', // Placeholder for validation (backend makes it optional)
+          minimumBalance
+        }),
+        signal: controller.signal
+      })
+      
+      clearTimeout(timeoutId)
+      
+      if (response.ok) {
+        const data = await response.json()
+        // Check both hasAccess field and success field (backend may return either)
+        const hasAccess = data.hasAccess === true || (data.success === true && data.hasAccess !== false)
+        console.log(`[checkPremiumAccess] Backend check result: ${hasAccess} (response: ${JSON.stringify(data)})`)
+        return hasAccess
+      } else if (response.status === 403) {
+        // Access denied - insufficient balance
+        console.log(`[checkPremiumAccess] Access denied (403) - insufficient balance`)
+        return false
+      } else {
+        // Backend error - fallback to frontend check
+        const errorText = await response.text().catch(() => 'Unknown error')
+        console.warn(`[checkPremiumAccess] Backend check failed (${response.status}): ${errorText}, falling back to frontend check`)
+        const { getTokenBalance } = await import('./petraWalletService')
+        const balance = await getTokenBalance(creatorAddress, String(tokenId), userAddress)
+        const hasAccess = balance >= minimumBalance
+        console.log(`[checkPremiumAccess] Frontend check result: ${hasAccess} (balance: ${balance}, minimum: ${minimumBalance})`)
+        return hasAccess
+      }
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId)
+      
+      if (fetchError.name === 'AbortError') {
+        console.warn('[checkPremiumAccess] Request timeout, falling back to frontend check')
+      } else {
+        console.warn(`[checkPremiumAccess] Backend request failed: ${fetchError.message}, falling back to frontend check`)
+      }
+      
+      // Fallback to frontend check
       const { getTokenBalance } = await import('./petraWalletService')
-      const balance = await getTokenBalance(creatorAddress, tokenId, userAddress)
-      return balance >= minimumBalance
+      const balance = await getTokenBalance(creatorAddress, String(tokenId), userAddress)
+      const hasAccess = balance >= minimumBalance
+      console.log(`[checkPremiumAccess] Frontend check result: ${hasAccess} (balance: ${balance}, minimum: ${minimumBalance})`)
+      return hasAccess
     }
   } catch (error) {
-    console.error('Failed to check premium access:', error)
-    // Fallback to frontend check
+    console.error('[checkPremiumAccess] Error checking premium access:', error)
+    // Final fallback to frontend check
     try {
       const { getTokenBalance } = await import('./petraWalletService')
-      const balance = await getTokenBalance(creatorAddress, tokenId, userAddress)
-      return balance >= minimumBalance
+      const balance = await getTokenBalance(creatorAddress, String(tokenId), userAddress)
+      const hasAccess = balance >= minimumBalance
+      console.log(`[checkPremiumAccess] Final fallback result: ${hasAccess} (balance: ${balance}, minimum: ${minimumBalance})`)
+      return hasAccess
     } catch (fallbackError) {
-      console.error('Fallback access check also failed:', fallbackError)
+      console.error('[checkPremiumAccess] Fallback access check also failed:', fallbackError)
       return false
     }
   }
@@ -180,30 +214,54 @@ export async function getPremiumAccessToken(
   minimumBalance: number = 1
 ): Promise<{ accessToken: string; expiresAt: string } | null> {
   try {
-    const response = await fetch('http://localhost:5001/api/premium/access-token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        userAddress,
-        creatorAddress,
-        tokenId,
-        blobUrl,
-        minimumBalance
+    console.log(`[getPremiumAccessToken] Requesting access token: user=${userAddress.slice(0, 10)}..., tokenId=${String(tokenId).slice(0, 20)}...`)
+    
+    // Add timeout protection
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 15000) // 15 second timeout
+    
+    try {
+      const response = await fetch('http://localhost:5001/api/premium/access-token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress,
+          creatorAddress,
+          tokenId: String(tokenId), // Ensure tokenId is string
+          blobUrl,
+          minimumBalance
+        }),
+        signal: controller.signal
       })
-    })
-    
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || 'Failed to get access token')
+      
+      clearTimeout(timeoutId)
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: `HTTP ${response.status}` }))
+        const errorMsg = errorData.error || `Failed to get access token: ${response.status}`
+        console.error(`[getPremiumAccessToken] Access denied: ${errorMsg}`)
+        throw new Error(errorMsg)
+      }
+      
+      const data = await response.json()
+      if (data.accessToken && data.expiresAt) {
+        console.log(`[getPremiumAccessToken] ✅ Access token issued (expires: ${data.expiresAt})`)
+        return {
+          accessToken: data.accessToken,
+          expiresAt: data.expiresAt
+        }
+      } else {
+        throw new Error('Invalid access token response')
+      }
+    } catch (fetchError: any) {
+      clearTimeout(timeoutId)
+      if (fetchError.name === 'AbortError') {
+        throw new Error('Request timeout - please try again')
+      }
+      throw fetchError
     }
-    
-    const data = await response.json()
-    return {
-      accessToken: data.accessToken,
-      expiresAt: data.expiresAt
-    }
-  } catch (error) {
-    console.error('Failed to get premium access token:', error)
+  } catch (error: any) {
+    console.error('[getPremiumAccessToken] Failed to get premium access token:', error)
     return null
   }
 }

@@ -96,23 +96,47 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
       return
     }
 
+    // Add timeout protection for the entire check
+    const checkTimeout = setTimeout(() => {
+      console.warn('[PremiumContentGate] Access check timeout - forcing completion')
+      setIsChecking(false)
+      setError('Access check timed out. Please try refreshing.')
+    }, 20000) // 20 second max timeout
+
     try {
       setIsChecking(true)
+      setError(null) // Clear previous errors
+      
       // MUST use content_id for contract calls, not token_id (which is metadata address)
       const tokenId = tokenData.content_id || tokenData.token_id
       if (!tokenId) {
         setError('Token ID not found')
         setIsChecking(false)
+        clearTimeout(checkTimeout)
         return
       }
-      console.log(`[PremiumContentGate] Checking access with tokenId: ${tokenId} (content_id: ${tokenData.content_id}, token_id: ${tokenData.token_id})`)
+      
+      console.log(`[PremiumContentGate] Checking access with tokenId: ${String(tokenId)} (content_id: ${tokenData.content_id}, token_id: ${tokenData.token_id}, creator: ${tokenData.creator})`)
 
-      const access = await checkPremiumAccess(
-        address,
-        tokenData.creator,
-        tokenId,
-        minimumBalance
-      )
+      // Call access check with timeout protection (already handled in checkPremiumAccess)
+      const access = await Promise.race([
+        checkPremiumAccess(
+          address,
+          tokenData.creator,
+          String(tokenId), // Ensure tokenId is string
+          minimumBalance
+        ),
+        new Promise<boolean>((resolve) => {
+          setTimeout(() => {
+            console.warn('[PremiumContentGate] Access check taking too long, using fallback')
+            resolve(false) // Default to no access on timeout
+          }, 15000) // 15 second timeout
+        })
+      ])
+
+      clearTimeout(checkTimeout)
+
+      console.log(`[PremiumContentGate] Access check result: ${access} (minimum balance: ${minimumBalance})`)
 
       // STRICT: Immediately revoke access if balance is insufficient
       if (!access) {
@@ -150,13 +174,22 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
         }
         try {
           // Get secure access token from backend (time-limited, verified)
-          const tokenResponse = await getPremiumAccessToken(
-            address,
-            tokenData.creator,
-            tokenId,
-            premiumContentUrl,
-            minimumBalance
-          )
+          console.log(`[PremiumContentGate] Requesting access token for premium content...`)
+          const tokenResponse = await Promise.race([
+            getPremiumAccessToken(
+              address,
+              tokenData.creator,
+              String(tokenId),
+              premiumContentUrl,
+              minimumBalance
+            ),
+            new Promise<{ accessToken: string; expiresAt: string } | null>((resolve) => {
+              setTimeout(() => {
+                console.warn('[PremiumContentGate] Access token request timeout')
+                resolve(null)
+              }, 15000) // 15 second timeout
+            })
+          ])
           
           if (tokenResponse) {
             setAccessToken(tokenResponse.accessToken)
@@ -169,9 +202,10 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
               // For documents, use secure backend proxy
               setContentUrl(getPremiumContentUrl(premiumContentUrl, tokenResponse.accessToken))
             }
+            console.log(`[PremiumContentGate] ✅ Premium content URL set with access token`)
           } else {
             // Fallback to direct URL if token generation fails
-            console.warn('Failed to get access token, using direct URL (less secure)')
+            console.warn('[PremiumContentGate] Failed to get access token, using direct URL (less secure)')
             if (premiumContentType === 'video' || premiumContentType === 'image') {
               setContentUrl(getPremiumContentUrl(premiumContentUrl))
             } else {
@@ -181,8 +215,8 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
             }
           }
         } catch (downloadError) {
-          console.error('Failed to load premium content:', downloadError)
-          setError('Failed to load premium content')
+          console.error('[PremiumContentGate] Failed to load premium content:', downloadError)
+          setError(`Failed to load premium content: ${downloadError instanceof Error ? downloadError.message : 'Unknown error'}`)
         }
       } else {
         // Clear access token if access is revoked
