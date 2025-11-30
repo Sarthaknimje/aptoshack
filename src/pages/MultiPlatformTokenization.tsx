@@ -44,7 +44,7 @@ import TradeSuccessModal from '../components/TradeSuccessModal'
 import TokenSuccessModal from '../components/TokenSuccessModal'
 import PremiumBackground from '../components/PremiumBackground'
 
-type Platform = 'youtube' | 'instagram' | 'twitter' | 'linkedin'
+type Platform = 'youtube' | 'instagram' | 'twitter' | 'linkedin' | 'creatorcoin'
 
 const MultiPlatformTokenization: React.FC = () => {
   const [searchParams] = useSearchParams()
@@ -120,21 +120,24 @@ const MultiPlatformTokenization: React.FC = () => {
     youtube: Youtube,
     instagram: Instagram,
     twitter: Twitter,
-    linkedin: Linkedin
+    linkedin: Linkedin,
+    creatorcoin: Coins
   }
 
   const platformColors = {
     youtube: 'from-red-500 to-red-600',
     instagram: 'from-pink-500 to-purple-600',
     twitter: 'from-blue-400 to-blue-600',
-    linkedin: 'from-blue-600 to-blue-800'
+    linkedin: 'from-blue-600 to-blue-800',
+    creatorcoin: 'from-violet-500 via-purple-500 to-amber-500'
   }
 
   const platformNames = {
     youtube: 'YouTube',
     instagram: 'Instagram',
     twitter: 'Twitter/X',
-    linkedin: 'LinkedIn'
+    linkedin: 'LinkedIn',
+    creatorcoin: 'CreatorCoin'
   }
 
   const handlePlatformSelect = (platform: Platform) => {
@@ -601,8 +604,8 @@ const MultiPlatformTokenization: React.FC = () => {
           className="mb-12"
         >
           <h2 className="text-2xl font-bold text-white mb-6 text-center">Select Your Platform</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-            {(['instagram', 'twitter', 'linkedin', 'youtube'] as Platform[]).map((platform) => {
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
+            {(['instagram', 'twitter', 'linkedin', 'youtube', 'creatorcoin'] as Platform[]).map((platform) => {
               const Icon = platformIcons[platform]
               const colorClass = platformColors[platform]
               const isSelected = selectedPlatform === platform
@@ -630,7 +633,7 @@ const MultiPlatformTokenization: React.FC = () => {
                     <Icon className={`w-12 h-12 mx-auto mb-3 ${isSelected ? 'text-white' : 'text-gray-400 group-hover:text-white'}`} />
                     <div className="font-bold text-lg mb-1">{platformNames[platform]}</div>
                     <div className={`text-xs ${isSelected ? 'text-white/80' : 'text-gray-500'}`}>
-                      {platform === 'youtube' ? 'Connect Channel' : 'Paste URL'}
+                      {platform === 'youtube' ? 'Connect Channel' : platform === 'creatorcoin' ? 'Create Post' : 'Paste URL'}
                     </div>
                   </div>
                   {isSelected && (
@@ -648,8 +651,51 @@ const MultiPlatformTokenization: React.FC = () => {
           </div>
         </motion.div>
 
+        {/* CreatorCoin - Redirect to Create Post */}
+        {selectedPlatform === 'creatorcoin' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="bg-gradient-to-br from-violet-900/20 via-purple-900/20 to-amber-900/20 backdrop-blur-xl border border-violet-500/30 rounded-2xl p-10 text-center shadow-2xl"
+          >
+            <motion.div
+              animate={{ 
+                scale: [1, 1.1, 1],
+                rotate: [0, 5, -5, 0]
+              }}
+              transition={{ 
+                duration: 3,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+              className="w-20 h-20 bg-gradient-to-r from-violet-600 via-purple-600 to-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl"
+            >
+              <Coins className="w-10 h-10 text-white" />
+            </motion.div>
+            <h3 className="text-2xl font-bold text-white mb-3">
+              Create <span className="bg-gradient-to-r from-violet-400 via-purple-400 to-amber-400 bg-clip-text text-transparent">CreatorCoin Post</span>
+            </h3>
+            <p className="text-gray-300 mb-2 text-lg">
+              Tokenize Your Post Content
+            </p>
+            <p className="text-gray-400 mb-8 max-w-md mx-auto">
+              Create a post that can be tokenized and traded. Your audience can invest in your posts, and you earn from every trade.
+            </p>
+            <motion.button
+              onClick={() => window.location.href = '/create-post'}
+              whileHover={{ scale: 1.05, y: -2 }}
+              whileTap={{ scale: 0.95 }}
+              className="px-8 py-4 bg-gradient-to-r from-violet-600 via-purple-600 to-amber-500 text-white rounded-xl font-bold text-lg shadow-2xl hover:shadow-purple-500/50 transition-all flex items-center gap-3 mx-auto"
+            >
+              <Sparkles className="w-6 h-6" />
+              <span>Go to Create Post</span>
+            </motion.button>
+          </motion.div>
+        )}
+
         {/* URL Input Section */}
-        {selectedPlatform && (
+        {selectedPlatform && selectedPlatform !== 'creatorcoin' && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

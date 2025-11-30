@@ -46,8 +46,6 @@ const CreatePost: React.FC = () => {
   const [shelbyBlobId, setShelbyBlobId] = useState<string | null>(null)
   const [shelbyAccountAddress, setShelbyAccountAddress] = useState<string | null>(null)
   const [userTokens, setUserTokens] = useState<any[]>([])
-  const [shelbyBalance, setShelbyBalance] = useState<{ apt: number; shelbyusd: number } | null>(null)
-  const [loadingShelbyBalance, setLoadingShelbyBalance] = useState(false)
   const [showPatReward, setShowPatReward] = useState(false)
   const [patRewardAmount, setPatRewardAmount] = useState(1)
   const [patRewardType, setPatRewardType] = useState<'post_created' | 'token_created' | 'token_purchase' | 'token_sell'>('post_created')
@@ -68,28 +66,7 @@ const CreatePost: React.FC = () => {
         }
       })
       .catch(err => console.error('Error fetching tokens:', err))
-
-    // Fetch Shelby account balance
-    fetchShelbyBalance()
   }, [address, isConnected, navigate])
-
-  const fetchShelbyBalance = async () => {
-    setLoadingShelbyBalance(true)
-    try {
-      const response = await fetch('http://localhost:5001/api/shelby/account-balance')
-      const data = await response.json()
-      if (data.success) {
-        setShelbyBalance({ apt: data.apt_balance || 0, shelbyusd: data.shelbyusd_balance || 0 })
-        if (data.account_address) {
-          setShelbyAccountAddress(data.account_address)
-        }
-      }
-    } catch (err) {
-      console.error('Error fetching Shelby balance:', err)
-    } finally {
-      setLoadingShelbyBalance(false)
-    }
-  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
@@ -165,9 +142,6 @@ const CreatePost: React.FC = () => {
             blobId: shelbyBlobId, 
             accountAddress: uploadResult.accountAddress 
           })
-          
-          // Refresh balance after upload
-          fetchShelbyBalance()
         } catch (uploadError) {
           console.error('❌ Shelby upload failed:', uploadError)
           setError(`Failed to upload to Shelby: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`)
@@ -384,70 +358,6 @@ const CreatePost: React.FC = () => {
           </motion.div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Shelby Account Balance */}
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl"
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-gradient-to-r from-purple-500/20 to-violet-500/20 rounded-lg">
-                    <Database className="w-5 h-5 text-purple-400" />
-                  </div>
-                  <div>
-                    <div className="text-sm font-semibold text-gray-300">Shelby Storage Account</div>
-                    {shelbyAccountAddress && (
-                      <div className="text-xs text-gray-500 font-mono">
-                        {shelbyAccountAddress.slice(0, 10)}...{shelbyAccountAddress.slice(-8)}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-4">
-                  {loadingShelbyBalance ? (
-                    <Loader className="w-4 h-4 animate-spin text-gray-400" />
-                  ) : shelbyBalance ? (
-                    <>
-                      <div className="text-right">
-                        <div className="text-xs text-gray-400">APT Balance</div>
-                        <div className={`text-sm font-bold ${shelbyBalance.apt > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {shelbyBalance.apt.toFixed(4)} APT
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs text-gray-400">ShelbyUSD</div>
-                        <div className={`text-sm font-bold ${shelbyBalance.shelbyusd > 0 ? 'text-green-400' : 'text-red-400'}`}>
-                          {shelbyBalance.shelbyusd.toFixed(4)} USD
-                        </div>
-                      </div>
-                      {(shelbyBalance.apt === 0 || shelbyBalance.shelbyusd === 0) && (
-                        <motion.div
-                          initial={{ opacity: 0, scale: 0.9 }}
-                          animate={{ opacity: 1, scale: 1 }}
-                          className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/30"
-                        >
-                          <AlertCircle className="w-4 h-4" />
-                          <span>Low balance</span>
-                        </motion.div>
-                      )}
-                    </>
-                  ) : (
-                    <div className="text-xs text-gray-500">Unable to fetch</div>
-                  )}
-                  <motion.button
-                    type="button"
-                    onClick={fetchShelbyBalance}
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="p-2 bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 transition-colors"
-                  >
-                    <Loader className="w-4 h-4 text-gray-400" />
-                  </motion.button>
-                </div>
-              </div>
-            </motion.div>
-
             {/* Content Type - Beautiful Animated Selection */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
