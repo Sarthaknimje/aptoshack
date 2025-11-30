@@ -4,7 +4,7 @@
  * https://stage-api.getstan.app/identity-service/api/v1
  */
 
-const PHOTON_API_BASE = 'https://stage-api.getstan.app/identity-service/api/v1'
+const PHOTON_API_BASE = process.env.REACT_APP_PHOTON_BASE_URL || 'https://stage-api.getstan.app/identity-service/api/v1'
 const PHOTON_API_KEY = process.env.REACT_APP_PHOTON_API_KEY || '7bc5d06eb53ad73716104742c7e8a5377da9fe8156378dcfebfb8253da4e8800' // Default hackathon key
 const PHOTON_CAMPAIGN_ID = process.env.REACT_APP_PHOTON_CAMPAIGN_ID || 'ea3bcaca-9ce4-4b54-b803-8b9be1f142ba' // Default campaign ID
 
