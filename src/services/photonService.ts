@@ -322,6 +322,7 @@ export const PHOTON_CAMPAIGNS = {
   // Rewarded events - all use the same campaign ID
   TOKEN_PURCHASE: PHOTON_CAMPAIGN_ID, // Reward for buying creator tokens
   TOKEN_SELL: PHOTON_CAMPAIGN_ID, // Reward for selling tokens
+  CREATE_TOKEN: PHOTON_CAMPAIGN_ID, // Reward for creating tokens
   FIRST_TRADE: PHOTON_CAMPAIGN_ID, // Reward for first trade
   DAILY_TRADE: PHOTON_CAMPAIGN_ID, // Reward for daily trading
   REFERRAL: PHOTON_CAMPAIGN_ID, // Reward for referrals
@@ -330,7 +331,6 @@ export const PHOTON_CAMPAIGNS = {
   LOGIN: PHOTON_CAMPAIGN_ID, // Track login
   VIEW_CONTENT: PHOTON_CAMPAIGN_ID, // Track content views
   SHARE_TOKEN: PHOTON_CAMPAIGN_ID, // Track token sharing
-  CREATE_TOKEN: PHOTON_CAMPAIGN_ID, // Track token creation
 } as const
 
 /**
@@ -340,6 +340,7 @@ export const PHOTON_EVENT_TYPES = {
   // Rewarded
   TOKEN_PURCHASE: 'token_purchase',
   TOKEN_SELL: 'token_sell',
+  CREATE_TOKEN: 'create_token',
   FIRST_TRADE: 'first_trade',
   DAILY_TRADE: 'daily_trade',
   REFERRAL: 'referral',
@@ -348,6 +349,25 @@ export const PHOTON_EVENT_TYPES = {
   LOGIN: 'login',
   VIEW_CONTENT: 'view_content',
   SHARE_TOKEN: 'share_token',
-  CREATE_TOKEN: 'create_token',
+} as const
+
+/**
+ * Photon Dashboard and API Links
+ */
+export const PHOTON_LINKS = {
+  // API Base URL
+  API_BASE: PHOTON_API_BASE,
+  
+  // Dashboard (contact Photon team for access)
+  DASHBOARD: 'https://dashboard.getstan.app', // Estimated - contact Photon for actual URL
+  
+  // API Documentation
+  API_DOCS: 'https://docs.getstan.app', // Estimated - contact Photon for actual URL
+  
+  // Explorer/Blockchain
+  EXPLORER: 'https://explorer.aptoslabs.com', // Aptos Explorer for viewing transactions
+  
+  // Support/Contact
+  SUPPORT: 'https://getstan.app/support', // Estimated - contact Photon for actual URL
 } as const
 

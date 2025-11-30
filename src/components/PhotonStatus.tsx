@@ -18,8 +18,12 @@ import {
   Eye,
   TrendingUp,
   TrendingDown,
-  RefreshCw
+  RefreshCw,
+  ExternalLink,
+  Globe,
+  BookOpen
 } from 'lucide-react'
+import { PHOTON_LINKS } from '../services/photonService'
 
 interface EventLog {
   id: string
@@ -144,10 +148,11 @@ const PhotonStatus: React.FC = () => {
               const eventTypeMap: Record<string, string> = {
                 'token_purchase': 'Token Purchase',
                 'token_sell': 'Token Sell',
-                'view_content': 'Content View',
                 'create_token': 'Token Creation',
+                'view_content': 'Content View',
                 'login': 'Login',
-                'token_share': 'Token Share'
+                'token_share': 'Token Share',
+                'share_token': 'Token Share'
               }
               eventType = eventTypeMap[eventTypeValue] || eventTypeValue.charAt(0).toUpperCase() + eventTypeValue.slice(1).replace(/_/g, ' ')
             }
@@ -155,12 +160,21 @@ const PhotonStatus: React.FC = () => {
           
           // Fallback: try to find event type in the message
           if (eventType === 'unknown') {
-            if (message.includes('token_purchase')) eventType = 'Token Purchase'
-            else if (message.includes('token_sell')) eventType = 'Token Sell'
+            if (message.includes('token_purchase')) {
+              eventType = 'Token Purchase'
+              isRewarded = true
+            }
+            else if (message.includes('token_sell')) {
+              eventType = 'Token Sell'
+              isRewarded = true
+            }
+            else if (message.includes('create_token')) {
+              eventType = 'Token Creation'
+              isRewarded = true
+            }
             else if (message.includes('view_content')) eventType = 'Content View'
-            else if (message.includes('create_token')) eventType = 'Token Creation'
             else if (message.includes('login')) eventType = 'Login'
-            else if (message.includes('token_share')) eventType = 'Token Share'
+            else if (message.includes('token_share') || message.includes('share_token')) eventType = 'Token Share'
           }
           
           // Extract token amount from various patterns
@@ -467,15 +481,77 @@ const PhotonStatus: React.FC = () => {
                       <div className="text-gray-300 space-y-0.5 ml-2">
                         <div>• Token Purchase → PAT tokens</div>
                         <div>• Token Sell → PAT tokens</div>
+                        <div>• Token Creation → PAT tokens</div>
                       </div>
                     </div>
                     <div>
                       <div className="text-blue-400 font-medium mb-1">📊 Unrewarded (Tracking Only):</div>
                       <div className="text-gray-300 space-y-0.5 ml-2">
                         <div>• Content View → 0 tokens</div>
-                        <div>• Token Creation → 0 tokens</div>
+                        <div>• Login → 0 tokens</div>
                       </div>
                     </div>
+                  </div>
+                </div>
+
+                {/* External Links */}
+                <div className="bg-gray-800/50 rounded p-3 space-y-2">
+                  <div className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1">
+                    <Globe className="w-3 h-3" />
+                    External Links
+                  </div>
+                  <div className="space-y-1.5">
+                    <a
+                      href={PHOTON_LINKS.API_BASE}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                    >
+                      <span className="flex items-center gap-1">
+                        <BookOpen className="w-3 h-3" />
+                        API Base URL
+                      </span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <a
+                      href={PHOTON_LINKS.DASHBOARD}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between text-xs text-purple-400 hover:text-purple-300 transition-colors"
+                    >
+                      <span className="flex items-center gap-1">
+                        <Eye className="w-3 h-3" />
+                        Photon Dashboard
+                      </span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <a
+                      href={PHOTON_LINKS.API_DOCS}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between text-xs text-green-400 hover:text-green-300 transition-colors"
+                    >
+                      <span className="flex items-center gap-1">
+                        <BookOpen className="w-3 h-3" />
+                        API Documentation
+                      </span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <a
+                      href={PHOTON_LINKS.EXPLORER}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-between text-xs text-yellow-400 hover:text-yellow-300 transition-colors"
+                    >
+                      <span className="flex items-center gap-1">
+                        <Globe className="w-3 h-3" />
+                        Aptos Explorer
+                      </span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                  <div className="text-[10px] text-gray-500 mt-2 pt-2 border-t border-gray-700">
+                    Note: Dashboard access requires Photon team approval
                   </div>
                 </div>
 

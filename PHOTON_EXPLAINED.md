@@ -26,6 +26,11 @@ These actions **automatically mint and deposit PAT tokens** into the user's Phot
    - **Reward**: PAT tokens (amount set by Photon campaign)
    - **Location**: `TradingMarketplace.tsx` - when sell succeeds
 
+3. **Token Creation** 🎨
+   - **When**: Creator creates a new token
+   - **Reward**: PAT tokens (amount set by Photon campaign)
+   - **Location**: `MultiPlatformTokenization.tsx` - after token is created
+
 ### 📝 **UNREWARDED Events** (No Tokens, Just Tracking)
 
 These actions are **tracked for analytics** but **don't give PAT tokens**:
@@ -35,12 +40,7 @@ These actions are **tracked for analytics** but **don't give PAT tokens**:
    - **Reward**: 0 PAT tokens (just tracking)
    - **Location**: `PremiumContentGate.tsx` - when user accesses premium content
 
-2. **Token Creation** 🎨
-   - **When**: Creator creates a new token
-   - **Reward**: 0 PAT tokens (just tracking)
-   - **Location**: `MultiPlatformTokenization.tsx` - after token is created
-
-3. **Login** 🔐
+2. **Login** 🔐
    - **When**: User connects wallet (future feature)
    - **Reward**: 0 PAT tokens (just tracking)
 
@@ -80,8 +80,16 @@ Photon provides a dashboard where you can see:
 - Campaign performance
 - Token distribution
 - User engagement metrics
+- Real-time event tracking
+- Reward analytics
 
-**Access**: Contact Photon team for dashboard access
+**Access Links:**
+- **Dashboard**: https://dashboard.getstan.app (Contact Photon team for access)
+- **API Base**: https://stage-api.getstan.app/identity-service/api/v1
+- **API Docs**: https://docs.getstan.app (Contact Photon for documentation)
+- **Aptos Explorer**: https://explorer.aptoslabs.com (View blockchain transactions)
+
+**Note**: Dashboard access requires Photon team approval. Contact Photon support for credentials.
 
 ---
 

@@ -306,9 +306,9 @@ export const PhotonProvider: React.FC<PhotonProviderProps> = ({ children }) => {
     )
   }
 
-  // Helper: Track token creation
+  // Helper: Reward token creation (REWARDED EVENT)
   const trackTokenCreation = async (tokenSymbol: string) => {
-    await trackUnrewardedEvent(
+    await trackRewardedEvent(
       PHOTON_EVENT_TYPES.CREATE_TOKEN,
       PHOTON_CAMPAIGNS.CREATE_TOKEN,
       { token_symbol: tokenSymbol }
