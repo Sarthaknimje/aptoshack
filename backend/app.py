@@ -1820,6 +1820,114 @@ def get_token_balance(asa_id):
             "error": str(e)
         }), 500
 
+@app.route('/api/tokens', methods=['POST', 'OPTIONS'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def create_token():
+    """Create a new token (for creator coins and other tokens)"""
+    try:
+        data = request.get_json()
+        
+        # Required fields
+        token_id = data.get('token_id')
+        creator = data.get('creator')
+        token_name = data.get('token_name')
+        token_symbol = data.get('token_symbol')
+        metadata_address = data.get('metadata_address')
+        
+        if not all([token_id, creator, token_name, token_symbol]):
+            return jsonify({
+                "success": False,
+                "error": "Missing required fields: token_id, creator, token_name, token_symbol"
+            }), 400
+        
+        # Initialize bonding curve
+        total_supply = int(data.get('total_supply', 1000000))
+        initial_price = float(data.get('current_price', 0.01))
+        market_cap = float(data.get('market_cap', 10000))
+        
+        bonding_curve_config = None
+        bonding_curve_state = None
+        if BondingCurve is not None:
+            bonding_curve = BondingCurve(
+                initial_price=initial_price,
+                initial_supply=total_supply
+            )
+            bonding_curve_state_obj = BondingCurveState(
+                token_supply=0,
+                algo_reserve=0
+            )
+            bonding_curve_config = json.dumps(bonding_curve.to_dict())
+            bonding_curve_state = json.dumps(bonding_curve_state_obj.to_dict())
+        
+        # Store in database
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Check if token already exists
+        cursor.execute('SELECT token_id FROM tokens WHERE token_id = ?', (token_id,))
+        if cursor.fetchone():
+            conn.close()
+            return jsonify({
+                "success": False,
+                "error": "Token already exists"
+            }), 400
+        
+        # Insert token
+        cursor.execute('''
+            INSERT INTO tokens (
+                token_id, metadata_address, creator, token_name, token_symbol, 
+                total_supply, current_price, market_cap, platform,
+                bonding_curve_config, bonding_curve_state, content_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            token_id,
+            metadata_address or token_id,  # Use token_id as fallback for metadata_address
+            creator,
+            token_name,
+            token_symbol,
+            total_supply,
+            initial_price,
+            market_cap,
+            data.get('platform', 'creatorcoin'),
+            bonding_curve_config,
+            bonding_curve_state,
+            token_id  # content_id same as token_id
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Token created: {token_name} ({token_symbol}) by {creator}")
+        
+        return jsonify({
+            "success": True,
+            "token": {
+                "token_id": token_id,
+                "token_name": token_name,
+                "token_symbol": token_symbol,
+                "creator": creator,
+                "total_supply": total_supply,
+                "current_price": initial_price,
+                "market_cap": market_cap,
+                "platform": data.get('platform', 'creatorcoin')
+            }
+        })
+        
+    except sqlite3.IntegrityError as e:
+        logger.error(f"❌ Database integrity error: {e}")
+        return jsonify({
+            "success": False,
+            "error": "Token already exists"
+        }), 400
+    except Exception as e:
+        logger.error(f"❌ Error creating token: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
 @app.route('/tokens', methods=['GET'])
 def get_tokens():
     """Get all created tokens"""
