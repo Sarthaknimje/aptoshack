@@ -56,6 +56,8 @@ const CreatePost: React.FC = () => {
   const [creatingCoin, setCreatingCoin] = useState(false)
   const [coinCreated, setCoinCreated] = useState(false)
   const [createdCoinData, setCreatedCoinData] = useState<any>(null)
+  const [coinCreated, setCoinCreated] = useState(false)
+  const [createdCoinData, setCreatedCoinData] = useState<any>(null)
 
   // Generate unique creator coin ID based on wallet address
   const getCreatorCoinId = (walletAddress: string): string => {
@@ -233,6 +235,11 @@ const CreatePost: React.FC = () => {
           
           // Show success state
           setCoinCreated(true)
+          
+          // Small delay to show success animation
+          setTimeout(() => {
+            // Keep success state visible
+          }, 2000)
         }
       }
 
