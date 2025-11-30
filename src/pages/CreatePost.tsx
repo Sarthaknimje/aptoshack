@@ -731,7 +731,6 @@ const CreatePost: React.FC = () => {
                           onClick={() => {
                             setSuccess(false)
                             setShelbyExplorerUrl(null)
-                            setShelbyAptosExplorerUrl(null)
                             setShelbyBlobId(null)
                             setTitle('')
                             setDescription('')
