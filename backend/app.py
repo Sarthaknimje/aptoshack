@@ -5778,9 +5778,10 @@ def verify_token_balance_on_chain(user_address: str, creator_address: str, token
                 if response.status_code == 200:
                     data = response.json()
                     balance = int(data[0] or '0', 10)
-                    logger.info(f"✅ Token balance verified: {balance} tokens for {user_address[:10]}... (contract: {module_address[:10]}..., minimum: {minimum_balance})")
                     has_access = balance >= minimum_balance
-                    logger.info(f"✅ Access result: {has_access} (balance: {balance} >= minimum: {minimum_balance})")
+                    logger.info(f"✅ Token balance verified: {balance} tokens for {user_address[:10]}... (contract: {module_address[:10]}..., minimum: {minimum_balance}, access: {has_access})")
+                    if not has_access:
+                        logger.warning(f"⚠️ Insufficient balance: {balance} < {minimum_balance} (required)")
                     return has_access
                 elif response.status_code == 429:
                     # Rate limit - wait and retry once

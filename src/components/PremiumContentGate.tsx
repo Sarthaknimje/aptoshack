@@ -48,6 +48,7 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
   const [accessToken, setAccessToken] = useState<string | null>(null)
   const [tokenExpiresAt, setTokenExpiresAt] = useState<Date | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [debugInfo, setDebugInfo] = useState<{ balance?: number; tokenId?: string; status?: string } | null>(null)
 
   useEffect(() => {
     // Set preview URL for blurred preview (direct Shelby URL)
@@ -119,24 +120,50 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
       console.log(`[PremiumContentGate] Checking access with tokenId: ${String(tokenId)} (content_id: ${tokenData.content_id}, token_id: ${tokenData.token_id}, creator: ${tokenData.creator})`)
 
       // Call access check with timeout protection (already handled in checkPremiumAccess)
+      setDebugInfo({ tokenId: String(tokenId), status: 'checking...' })
+      
       const access = await Promise.race([
-        checkPremiumAccess(
-          address,
-          tokenData.creator,
-          String(tokenId), // Ensure tokenId is string
-          minimumBalance
-        ),
+        (async () => {
+          try {
+            const result = await checkPremiumAccess(
+              address,
+              tokenData.creator,
+              String(tokenId), // Ensure tokenId is string
+              minimumBalance
+            )
+            // Also fetch balance for debug display
+            try {
+              const { getTokenBalance } = await import('../services/petraWalletService')
+              const balance = await getTokenBalance(tokenData.creator, String(tokenId), address)
+              setDebugInfo({ balance, tokenId: String(tokenId), status: result ? 'access granted' : 'access denied' })
+            } catch (e) {
+              setDebugInfo({ tokenId: String(tokenId), status: result ? 'access granted' : 'access denied' })
+            }
+            return result
+          } catch (e) {
+            setDebugInfo({ tokenId: String(tokenId), status: `error: ${e instanceof Error ? e.message : 'unknown'}` })
+            throw e
+          }
+        })(),
         new Promise<boolean>((resolve) => {
           setTimeout(() => {
             console.warn('[PremiumContentGate] Access check taking too long, using fallback')
-            resolve(false) // Default to no access on timeout
+            setDebugInfo({ tokenId: String(tokenId), status: 'timeout - checking balance...' })
+            // Try frontend check as fallback
+            import('../services/petraWalletService').then(({ getTokenBalance }) => {
+              getTokenBalance(tokenData.creator, String(tokenId), address).then(balance => {
+                const hasAccess = balance >= minimumBalance
+                setDebugInfo({ balance, tokenId: String(tokenId), status: hasAccess ? 'access granted (fallback)' : 'access denied (fallback)' })
+                resolve(hasAccess)
+              }).catch(() => resolve(false))
+            }).catch(() => resolve(false))
           }, 15000) // 15 second timeout
         })
       ])
 
       clearTimeout(checkTimeout)
 
-      console.log(`[PremiumContentGate] Access check result: ${access} (minimum balance: ${minimumBalance})`)
+      console.log(`[PremiumContentGate] Access check result: ${access} (minimum balance: ${minimumBalance}, debug: ${JSON.stringify(debugInfo)})`)
 
       // STRICT: Immediately revoke access if balance is insufficient
       if (!access) {
@@ -329,9 +356,27 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
                   Premium Content Locked
                 </h3>
                 
-                <p className="text-gray-200 mb-6 text-lg">
+                <p className="text-gray-200 mb-4 text-lg">
                   Hold at least <span className="text-cyan-400 font-semibold">{minimumBalance} {tokenData.token_symbol || 'tokens'}</span> to unlock this premium content
                 </p>
+                
+                {/* Debug Info */}
+                {debugInfo && (
+                  <div className="mb-4 p-3 bg-gray-900/50 rounded-lg border border-gray-700">
+                    <div className="text-xs text-gray-400 space-y-1">
+                      <div>Token ID: {debugInfo.tokenId ? `${String(debugInfo.tokenId).slice(0, 20)}...` : 'N/A'}</div>
+                      {debugInfo.balance !== undefined && (
+                        <div className={debugInfo.balance >= minimumBalance ? 'text-green-400' : 'text-red-400'}>
+                          Your Balance: {debugInfo.balance.toFixed(2)} {tokenData.token_symbol || 'tokens'}
+                          {debugInfo.balance < minimumBalance && (
+                            <span className="text-yellow-400 ml-2">(Need {minimumBalance})</span>
+                          )}
+                        </div>
+                      )}
+                      <div className="text-blue-400">Status: {debugInfo.status || 'unknown'}</div>
+                    </div>
+                  </div>
+                )}
                 
                 <div className="flex flex-col sm:flex-row gap-4 justify-center mb-6">
                   <motion.button
