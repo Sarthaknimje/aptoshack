@@ -329,6 +329,54 @@ def init_db():
     except sqlite3.OperationalError as e:
         logger.warning(f"Could not create unique index on token_id: {e}")
     
+    # Create posts table for social media feed
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS posts (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            creator_address TEXT NOT NULL,
+            token_id TEXT NOT NULL,
+            content_type TEXT NOT NULL,
+            shelby_blob_id TEXT,
+            shelby_blob_url TEXT,
+            title TEXT,
+            description TEXT,
+            is_premium BOOLEAN DEFAULT 0,
+            minimum_balance REAL DEFAULT 1,
+            likes_count INTEGER DEFAULT 0,
+            comments_count INTEGER DEFAULT 0,
+            shares_count INTEGER DEFAULT 0,
+            views_count INTEGER DEFAULT 0,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (token_id) REFERENCES tokens(token_id)
+        )
+    ''')
+    
+    # Create engagement table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS engagement (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            user_address TEXT NOT NULL,
+            engagement_type TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (post_id) REFERENCES posts(id),
+            UNIQUE(post_id, user_address, engagement_type)
+        )
+    ''')
+    
+    # Create comments table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            user_address TEXT NOT NULL,
+            comment_text TEXT NOT NULL,
+            shelby_blob_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (post_id) REFERENCES posts(id)
+        )
+    ''')
+    
     conn.commit()
     
     # Handle migration from old asa_id column to token_id
@@ -6030,6 +6078,207 @@ def get_premium_content():
         
     except Exception as e:
         logger.error(f"Error serving premium content: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+# ==================== SOCIAL MEDIA POSTS API ====================
+
+@app.route('/api/posts/create', methods=['POST'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def create_post():
+    """Create a new post and upload to Shelby"""
+    try:
+        data = request.get_json()
+        creator_address = data.get('creatorAddress')
+        content_type = data.get('contentType')  # text, image, video, reel, audio
+        shelby_blob_id = data.get('shelbyBlobId')
+        shelby_blob_url = data.get('shelbyBlobUrl')
+        title = data.get('title', '')
+        description = data.get('description', '')
+        is_premium = data.get('isPremium', False)
+        minimum_balance = data.get('minimumBalance', 1)
+        token_id = data.get('tokenId')
+        
+        if not all([creator_address, token_id, content_type]):
+            return jsonify({"success": False, "error": "Missing required parameters"}), 400
+        
+        # Verify creator has a token
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT token_id FROM tokens WHERE creator = ? AND token_id = ?', (creator_address, token_id))
+        token_row = cursor.fetchone()
+        if not token_row:
+            conn.close()
+            return jsonify({"success": False, "error": "Creator token not found"}), 404
+        
+        # Insert post
+        cursor.execute('''
+            INSERT INTO posts (
+                creator_address, token_id, content_type, shelby_blob_id, 
+                shelby_blob_url, title, description, is_premium, minimum_balance
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            creator_address, token_id, content_type, shelby_blob_id,
+            shelby_blob_url, title, description, 1 if is_premium else 0, minimum_balance
+        ))
+        
+        post_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Post created: ID={post_id}, Creator={creator_address[:10]}..., Type={content_type}")
+        
+        return jsonify({
+            "success": True,
+            "postId": post_id,
+            "shelbyBlobId": shelby_blob_id,
+            "shelbyBlobUrl": shelby_blob_url
+        })
+        
+    except Exception as e:
+        logger.error(f"Error creating post: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/posts/feed', methods=['GET'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def get_feed():
+    """Get social media feed"""
+    try:
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 20))
+        content_type = request.args.get('contentType')
+        sort_by = request.args.get('sortBy', 'latest')
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Build query
+        query = '''
+            SELECT p.*, t.token_name, t.token_symbol, t.current_price, t.market_cap,
+                   t.creator, t.content_thumbnail
+            FROM posts p
+            LEFT JOIN tokens t ON p.token_id = t.token_id
+            WHERE 1=1
+        '''
+        params = []
+        
+        if content_type and content_type != 'all':
+            query += ' AND p.content_type = ?'
+            params.append(content_type)
+        
+        # Sorting
+        if sort_by == 'trending':
+            query += ' ORDER BY (p.likes_count + p.comments_count + p.shares_count) DESC, p.created_at DESC'
+        elif sort_by == 'popular':
+            query += ' ORDER BY p.views_count DESC, p.created_at DESC'
+        else:  # latest
+            query += ' ORDER BY p.created_at DESC'
+        
+        query += ' LIMIT ? OFFSET ?'
+        params.extend([limit, (page - 1) * limit])
+        
+        cursor.execute(query, params)
+        rows = cursor.fetchall()
+        conn.close()
+        
+        # Format response
+        posts = []
+        for row in rows:
+            posts.append({
+                "postId": row[0],
+                "creatorAddress": row[1],
+                "tokenId": row[2],
+                "contentType": row[3],
+                "shelbyBlobId": row[4],
+                "shelbyBlobUrl": row[5],
+                "title": row[6],
+                "description": row[7],
+                "isPremium": bool(row[8]),
+                "minimumBalance": row[9],
+                "likesCount": row[10],
+                "commentsCount": row[11],
+                "sharesCount": row[12],
+                "viewsCount": row[13],
+                "createdAt": row[14],
+                "tokenName": row[15],
+                "tokenSymbol": row[16],
+                "tokenPrice": row[17] or 0,
+                "marketCap": row[18] or 0,
+                "creator": row[19],
+                "thumbnail": row[20]
+            })
+        
+        return jsonify({
+            "success": True,
+            "posts": posts,
+            "page": page,
+            "hasMore": len(posts) == limit
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting feed: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/posts/<int:post_id>/engage', methods=['POST'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def engage_with_post(post_id):
+    """Like, comment, or share a post"""
+    try:
+        data = request.get_json()
+        user_address = data.get('userAddress')
+        engagement_type = data.get('type')  # like, comment, share, view
+        
+        if not user_address or not engagement_type:
+            return jsonify({"success": False, "error": "Missing required parameters"}), 400
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        if engagement_type == 'view':
+            # Just increment view count
+            cursor.execute('UPDATE posts SET views_count = views_count + 1 WHERE id = ?', (post_id,))
+            conn.commit()
+            conn.close()
+            return jsonify({"success": True})
+        
+        # Check if engagement already exists
+        cursor.execute('''
+            SELECT id FROM engagement 
+            WHERE post_id = ? AND user_address = ? AND engagement_type = ?
+        ''', (post_id, user_address, engagement_type))
+        
+        existing = cursor.fetchone()
+        
+        if existing:
+            # Remove engagement (unlike, unshare)
+            cursor.execute('DELETE FROM engagement WHERE id = ?', (existing[0],))
+            increment = -1
+        else:
+            # Add engagement
+            cursor.execute('''
+                INSERT INTO engagement (post_id, user_address, engagement_type)
+                VALUES (?, ?, ?)
+            ''', (post_id, user_address, engagement_type))
+            increment = 1
+        
+        # Update post counts
+        if engagement_type == 'like':
+            cursor.execute('UPDATE posts SET likes_count = likes_count + ? WHERE id = ?', (increment, post_id))
+        elif engagement_type == 'share':
+            cursor.execute('UPDATE posts SET shares_count = shares_count + ? WHERE id = ?', (increment, post_id))
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"success": True, "increment": increment})
+        
+    except Exception as e:
+        logger.error(f"Error engaging with post: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 

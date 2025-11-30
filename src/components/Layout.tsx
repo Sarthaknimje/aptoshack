@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Outlet, Link, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Menu, X, Wallet, User, Rocket, Home, BarChart3, Play, TrendingUp } from 'lucide-react'
+import { Menu, X, Wallet, User, Rocket, Home, BarChart3, Play, TrendingUp, Sparkles } from 'lucide-react'
 import { useWallet } from '../contexts/WalletContext'
 import { PetraWalletIcon } from '../assets/icons'
 
@@ -12,6 +12,7 @@ const Layout: React.FC = () => {
 
   const navigation = [
     { name: 'Home', href: '/', icon: Home },
+    { name: 'Feed', href: '/feed', icon: Sparkles },
     { name: 'Dashboard', href: '/dashboard', icon: BarChart3 },
     { name: 'Tokenize', href: '/tokenize', icon: Rocket },
     { name: 'Marketplace', href: '/marketplace', icon: BarChart3 },

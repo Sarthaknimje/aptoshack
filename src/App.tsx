@@ -17,6 +17,7 @@ import PredictionMarket from './pages/PredictionMarket'
 import CopyTradingDashboard from './pages/CopyTradingDashboard'
 import BotStrategies from './pages/BotStrategies'
 import Referrals from './pages/Referrals'
+import SocialFeed from './pages/SocialFeed'
 
 function App() {
   return (
@@ -38,6 +39,7 @@ function App() {
               <Route path="youtube/videos" element={<YouTubeVideos />} />
               <Route path="predictions" element={<PredictionMarket />} />
               <Route path="referrals" element={<Referrals />} />
+              <Route path="feed" element={<SocialFeed />} />
               <Route path="auth/youtube/callback" element={<YouTubeCallback />} />
             </Route>
           </Routes>
