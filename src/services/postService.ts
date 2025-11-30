@@ -199,3 +199,26 @@ export async function getCreatorPosts(
   }
 }
 
+export async function deletePost(
+  postId: number,
+  creatorAddress: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE}/posts/${postId}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ creatorAddress })
+    })
+    
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to delete post')
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error deleting post:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
-import { Post, engageWithPost, getComments, createComment, Comment } from '../services/postService'
+import { Post, engageWithPost, getComments, createComment, Comment, deletePost } from '../services/postService'
 import PremiumContentGate from './PremiumContentGate'
 import { useWallet } from '../contexts/WalletContext'
 import { 
@@ -14,13 +14,15 @@ import {
   MoreHorizontal,
   Bookmark,
   Flag,
+  Trash2,
   Play,
   TrendingUp,
   TrendingDown,
   BarChart3,
   Send,
   Verified,
-  ExternalLink
+  ExternalLink,
+  Trash2
 } from 'lucide-react'
 
 interface PostCardProps {
@@ -42,6 +44,8 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const [showMenu, setShowMenu] = useState(false)
   const [showTokenize, setShowTokenize] = useState(false)
   const [showPredict, setShowPredict] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const [doubleTapTimeout, setDoubleTapTimeout] = useState<NodeJS.Timeout | null>(null)
   const [showHeartAnimation, setShowHeartAnimation] = useState(false)
   const imageRef = useRef<HTMLDivElement>(null)
@@ -202,21 +206,33 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
           >
             <MoreHorizontal className="w-5 h-5 text-gray-700" />
           </button>
-          <AnimatePresence>
-            {showMenu && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[150px]"
-              >
-                <button className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
-                  <Flag className="w-4 h-4" />
-                  Report
-                </button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+              <AnimatePresence>
+                {showMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                    className="absolute right-0 top-full mt-2 bg-white border border-gray-200 rounded-lg shadow-lg z-10 min-w-[150px]"
+                  >
+                    {address === post.creatorAddress && (
+                      <button
+                        onClick={() => {
+                          setShowMenu(false)
+                          setShowDeleteConfirm(true)
+                        }}
+                        className="w-full px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        Delete Post
+                      </button>
+                    )}
+                    <button className="w-full px-4 py-2.5 text-left text-sm text-gray-700 hover:bg-gray-50 flex items-center gap-2">
+                      <Flag className="w-4 h-4" />
+                      Report
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
         </div>
       </div>
 

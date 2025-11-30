@@ -6152,6 +6152,47 @@ def create_post():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/posts/<int:post_id>', methods=['DELETE'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def delete_post(post_id):
+    """Delete a post"""
+    try:
+        data = request.get_json()
+        creator_address = data.get('creatorAddress')
+        
+        if not creator_address:
+            return jsonify({"success": False, "error": "Creator address required"}), 400
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Verify post belongs to creator
+        cursor.execute('SELECT creator_address FROM posts WHERE id = ?', (post_id,))
+        post_row = cursor.fetchone()
+        
+        if not post_row:
+            conn.close()
+            return jsonify({"success": False, "error": "Post not found"}), 404
+        
+        if post_row[0] != creator_address:
+            conn.close()
+            return jsonify({"success": False, "error": "Unauthorized"}), 403
+        
+        # Delete post
+        cursor.execute('DELETE FROM posts WHERE id = ?', (post_id,))
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ Post deleted: ID={post_id} by {creator_address[:10]}...")
+        
+        return jsonify({"success": True})
+        
+    except Exception as e:
+        logger.error(f"Error deleting post: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @app.route('/api/posts/feed', methods=['GET'])
 @cross_origin(supports_credentials=True)
 @handle_errors
