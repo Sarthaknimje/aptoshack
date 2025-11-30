@@ -1017,6 +1017,22 @@ def youtube_callback():
             "subscribers": subscribers
         })
         
+    except HttpError as http_err:
+        # Handle quota exceeded error at top level
+        if http_err.resp.status == 403 and 'quotaExceeded' in str(http_err):
+            logger.error(f"❌ YouTube API quota exceeded during callback: {http_err}")
+            return jsonify({
+                "success": False,
+                "error": "YouTube API quota exceeded. Please try again later. Your connection may still be saved.",
+                "quotaExceeded": True
+            }), 429
+        else:
+            logger.error(f"❌ YouTube callback HTTP error: {http_err}")
+            traceback.print_exc()
+            return jsonify({
+                "success": False,
+                "error": f"YouTube API error: {str(http_err)}"
+            }), 500
     except Exception as e:
         print(f"❌ YouTube callback error: {e}")
         traceback.print_exc()
