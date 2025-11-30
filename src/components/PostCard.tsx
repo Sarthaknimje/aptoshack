@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useNavigate } from 'react-router-dom'
 import { Post, engageWithPost, getComments, createComment, Comment } from '../services/postService'
@@ -19,7 +19,8 @@ import {
   TrendingDown,
   BarChart3,
   Send,
-  Verified
+  Verified,
+  ExternalLink
 } from 'lucide-react'
 
 interface PostCardProps {
@@ -41,6 +42,9 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const [showMenu, setShowMenu] = useState(false)
   const [showTokenize, setShowTokenize] = useState(false)
   const [showPredict, setShowPredict] = useState(false)
+  const [doubleTapTimeout, setDoubleTapTimeout] = useState<NodeJS.Timeout | null>(null)
+  const [showHeartAnimation, setShowHeartAnimation] = useState(false)
+  const imageRef = useRef<HTMLDivElement>(null)
 
   // Track view on mount
   useEffect(() => {
@@ -48,6 +52,25 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
       engageWithPost(post.postId, address, 'view').catch(() => {})
     }
   }, [post.postId, isConnected, address])
+
+  // Double tap to like
+  const handleDoubleTap = () => {
+    if (doubleTapTimeout) {
+      clearTimeout(doubleTapTimeout)
+      setDoubleTapTimeout(null)
+      // Double tap detected
+      if (!liked) {
+        handleLike()
+        setShowHeartAnimation(true)
+        setTimeout(() => setShowHeartAnimation(false), 1000)
+      }
+    } else {
+      const timeout = setTimeout(() => {
+        setDoubleTapTimeout(null)
+      }, 300)
+      setDoubleTapTimeout(timeout)
+    }
+  }
 
   const handleLike = async () => {
     if (!isConnected || !address) {
@@ -126,13 +149,17 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
     return 'now'
   }
 
+  const formatAddress = (addr: string) => {
+    return `${addr.slice(0, 6)}...${addr.slice(-4)}`
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       className="bg-white border border-gray-200 rounded-lg overflow-hidden mb-4 shadow-sm hover:shadow-md transition-shadow"
     >
-      {/* Header - Instagram Style */}
+      {/* Header - Show Wallet Address */}
       <div className="px-4 py-3 flex items-center justify-between border-b border-gray-200">
         <div className="flex items-center gap-3">
           <button
@@ -141,7 +168,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
           >
             <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-full flex items-center justify-center border-2 border-white shadow-sm">
               <span className="text-white font-semibold text-sm">
-                {post.tokenName.charAt(0).toUpperCase()}
+                {post.creatorAddress.charAt(2).toUpperCase()}
               </span>
             </div>
           </button>
@@ -150,7 +177,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
               onClick={() => navigate(`/creator/${post.creatorAddress}`)}
               className="flex items-center gap-1.5 hover:opacity-70 transition-opacity"
             >
-              <span className="font-semibold text-sm text-gray-900">{post.tokenName}</span>
+              <span className="font-semibold text-sm text-gray-900">{formatAddress(post.creatorAddress)}</span>
               {post.isPremium && <Verified className="w-4 h-4 text-blue-500" />}
             </button>
             <div className="flex items-center gap-2 text-xs text-gray-500">
@@ -193,15 +220,35 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
         </div>
       </div>
 
-      {/* Content - Proper Social Media Sizing */}
+      {/* Content - Double Tap to Like */}
       {post.shelbyBlobUrl && (
-        <div className="w-full bg-black">
+        <div 
+          ref={imageRef}
+          className="w-full bg-black relative"
+          onDoubleClick={handleDoubleTap}
+        >
+          {/* Heart Animation on Double Tap */}
+          <AnimatePresence>
+            {showHeartAnimation && (
+              <motion.div
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: [0, 1.2, 1], opacity: [0, 1, 0] }}
+                exit={{ scale: 0, opacity: 0 }}
+                transition={{ duration: 0.6 }}
+                className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
+              >
+                <Heart className="w-20 h-20 text-red-500 fill-red-500" />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {post.contentType === 'image' && (
             <img 
               src={post.shelbyBlobUrl} 
               alt={post.title || 'Post content'} 
-              className="w-full object-cover"
+              className="w-full object-cover select-none"
               style={{ maxHeight: '600px' }}
+              draggable={false}
             />
           )}
           {post.contentType === 'video' && (
@@ -250,7 +297,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
         </div>
       )}
 
-      {/* Actions Bar - Instagram Style */}
+      {/* Actions Bar */}
       <div className="px-4 py-2">
         <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-4">
@@ -300,14 +347,17 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
             >
               <Coins className="w-5 h-5" />
             </motion.button>
-            <motion.button
-              onClick={() => setShowPredict(!showPredict)}
-              whileTap={{ scale: 0.9 }}
-              className="text-purple-600 hover:text-purple-700 transition-colors"
-              title="Predict on this post"
-            >
-              <BarChart3 className="w-5 h-5" />
-            </motion.button>
+            {post.shelbyBlobId && (
+              <a
+                href={`https://explorer.shelbynet.shelby.xyz/blob/${post.shelbyBlobId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-purple-600 hover:text-purple-700 transition-colors"
+                title="View on Shelby Explorer"
+              >
+                <ExternalLink className="w-5 h-5" />
+              </a>
+            )}
           </div>
         </div>
 
@@ -320,7 +370,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
 
         {/* Caption */}
         <div className="mb-1">
-          <span className="font-semibold text-sm text-gray-900 mr-2">{post.tokenName}</span>
+          <span className="font-semibold text-sm text-gray-900 mr-2">{formatAddress(post.creatorAddress)}</span>
           {post.title && (
             <span className="text-sm text-gray-900">{post.title}</span>
           )}
@@ -355,9 +405,24 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
             Invest →
           </button>
         </div>
+
+        {/* Shelby Explorer Link */}
+        {post.shelbyBlobId && (
+          <div className="mt-2 pt-2 border-t border-gray-100">
+            <a
+              href={`https://explorer.shelbynet.shelby.xyz/blob/${post.shelbyBlobId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-xs text-purple-600 hover:text-purple-700 transition-colors"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>View on Shelby Explorer</span>
+            </a>
+          </div>
+        )}
       </div>
 
-      {/* Tokenize Post Modal */}
+      {/* Tokenize Post Modal - First Step */}
       <AnimatePresence>
         {showTokenize && (
           <motion.div
@@ -376,7 +441,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
             >
               <h3 className="text-xl font-bold text-gray-900 mb-4">Tokenize This Post</h3>
               <p className="text-gray-600 mb-4">
-                Create a tradeable token for this post. Users can invest in the post's success.
+                Create a tradeable token for this post. After tokenization, you can create prediction markets.
               </p>
               <div className="flex gap-3">
                 <button
@@ -386,7 +451,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
                   }}
                   className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
                 >
-                  Create Token
+                  Tokenize First
                 </button>
                 <button
                   onClick={() => setShowTokenize(false)}
@@ -400,7 +465,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
         )}
       </AnimatePresence>
 
-      {/* Prediction Market Modal */}
+      {/* Prediction Market Modal - Only after tokenization */}
       <AnimatePresence>
         {showPredict && (
           <motion.div
@@ -417,10 +482,20 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
               onClick={(e) => e.stopPropagation()}
               className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl"
             >
-              <h3 className="text-xl font-bold text-gray-900 mb-4">Create Prediction</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-4">Create Prediction Market</h3>
               <p className="text-gray-600 mb-4">
                 Create a prediction market for this post. Users can bet on metrics like views, likes, or engagement.
               </p>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-gray-700 mb-2">Metric Type</label>
+                <select className="w-full px-3 py-2 border border-gray-300 rounded-lg">
+                  <option value="views">Views</option>
+                  <option value="likes">Likes</option>
+                  <option value="comments">Comments</option>
+                  <option value="shares">Shares</option>
+                  <option value="engagement">Engagement Rate</option>
+                </select>
+              </div>
               <div className="flex gap-3">
                 <button
                   onClick={() => {
@@ -504,7 +579,7 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
                               <span className="font-semibold text-sm text-gray-900">
-                                {comment.userAddress.slice(0, 6)}...{comment.userAddress.slice(-4)}
+                                {formatAddress(comment.userAddress)}
                               </span>
                               <span className="text-gray-500 text-xs">
                                 {formatTimeAgo(comment.createdAt)}

@@ -33,6 +33,9 @@ const CreatePost: React.FC = () => {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
+  const [shelbyExplorerUrl, setShelbyExplorerUrl] = useState<string | null>(null)
+  const [shelbyAptosExplorerUrl, setShelbyAptosExplorerUrl] = useState<string | null>(null)
+  const [shelbyBlobId, setShelbyBlobId] = useState<string | null>(null)
   const [userTokens, setUserTokens] = useState<any[]>([])
 
   useEffect(() => {
@@ -110,6 +113,9 @@ const CreatePost: React.FC = () => {
         const uploadResult = await uploadPremiumContent(file, blobName, 365)
         shelbyBlobId = uploadResult.blobId
         shelbyBlobUrl = uploadResult.blobUrl
+        setShelbyExplorerUrl(uploadResult.explorerUrl || `https://explorer.shelbynet.shelby.xyz/blob/${uploadResult.blobId}`)
+        setShelbyAptosExplorerUrl(uploadResult.aptosExplorerUrl)
+        setShelbyBlobId(uploadResult.blobId)
         setUploading(false)
       }
 
@@ -149,9 +155,7 @@ const CreatePost: React.FC = () => {
 
       if (result.success) {
         setSuccess(true)
-        setTimeout(() => {
-          navigate('/feed')
-        }, 2000)
+        // Don't auto-navigate, show success with Shelby links
       } else {
         setError(result.error || 'Failed to create post')
       }
@@ -352,10 +356,71 @@ const CreatePost: React.FC = () => {
             )}
 
             {success && (
-              <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4 text-green-400 flex items-center gap-2">
-                <CheckCircle className="w-5 h-5" />
-                Post created successfully! Redirecting to feed...
-              </div>
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="bg-green-500/20 border border-green-500/30 rounded-lg p-6 text-green-400"
+              >
+                <div className="flex items-center gap-2 mb-4">
+                  <CheckCircle className="w-5 h-5" />
+                  <span className="font-semibold">Post created successfully!</span>
+                </div>
+                
+                {shelbyBlobId && (
+                  <div className="space-y-3 text-sm">
+                    <div className="bg-white/5 rounded-lg p-3">
+                      <div className="text-gray-300 mb-2">Shelby Storage Details:</div>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="text-gray-400">Blob ID:</span>
+                          <code className="text-green-300 text-xs">{shelbyBlobId}</code>
+                        </div>
+                        {shelbyExplorerUrl && (
+                          <a
+                            href={shelbyExplorerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-green-400 hover:text-green-300 transition-colors"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            <span>View on Shelby Explorer</span>
+                          </a>
+                        )}
+                        {shelbyAptosExplorerUrl && (
+                          <a
+                            href={shelbyAptosExplorerUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2 text-green-400 hover:text-green-300 transition-colors"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            <span>View on Aptos Explorer</span>
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => navigate('/feed')}
+                        className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 transition-colors"
+                      >
+                        Go to Feed
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSuccess(false)
+                          setShelbyExplorerUrl(null)
+                          setShelbyAptosExplorerUrl(null)
+                          setShelbyBlobId(null)
+                        }}
+                        className="px-4 py-2 bg-white/10 text-white rounded-lg font-semibold hover:bg-white/20 transition-colors"
+                      >
+                        Create Another
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
             )}
 
             {/* Submit */}

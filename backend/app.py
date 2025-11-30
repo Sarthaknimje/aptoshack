@@ -6134,11 +6134,17 @@ def create_post():
         
         logger.info(f"✅ Post created: ID={post_id}, Creator={creator_address[:10]}..., Type={content_type}")
         
+        # Get Shelby explorer URLs if blob exists
+        shelby_explorer_url = None
+        if shelby_blob_id:
+            shelby_explorer_url = f"https://explorer.shelbynet.shelby.xyz/blob/{shelby_blob_id}"
+        
         return jsonify({
             "success": True,
             "postId": post_id,
             "shelbyBlobId": shelby_blob_id,
-            "shelbyBlobUrl": shelby_blob_url
+            "shelbyBlobUrl": shelby_blob_url,
+            "shelbyExplorerUrl": shelby_explorer_url
         })
         
     except Exception as e:
