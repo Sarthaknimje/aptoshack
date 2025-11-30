@@ -6387,20 +6387,40 @@ def get_creator_posts(creator_address):
         conn = sqlite3.connect('creatorvault.db')
         cursor = conn.cursor()
         
-        # Get creator's token info
+        # Get creator's token info (if exists)
         cursor.execute('''
-            SELECT token_id, token_name, token_symbol, current_price, market_cap
+            SELECT token_id, token_name, token_symbol, current_price, market_cap, content_id, creator
             FROM tokens
             WHERE creator = ?
             LIMIT 1
         ''', (creator_address,))
         
         token_row = cursor.fetchone()
-        if not token_row:
-            conn.close()
-            return jsonify({"success": False, "error": "Creator not found"}), 404
         
-        token_id, token_name, token_symbol, token_price, market_cap = token_row
+        # If no token exists, still return posts but with default creator info
+        if not token_row:
+            # Check if creator has any posts
+            cursor.execute('SELECT COUNT(*) FROM posts WHERE creator_address = ?', (creator_address,))
+            post_count = cursor.fetchone()[0]
+            
+            if post_count == 0:
+                conn.close()
+                return jsonify({
+                    "success": False,
+                    "error": "Creator not found or has no posts"
+                }), 404
+            
+            # Creator has posts but no token - return default info
+            token_id = None
+            token_name = f"Creator {creator_address[:6]}"
+            token_symbol = "CREATOR"
+            token_price = 0
+            market_cap = 0
+        else:
+            token_id, token_name, token_symbol, token_price, market_cap, content_id, creator = token_row
+            # Use content_id as token_id if token_id is None
+            if not token_id and content_id:
+                token_id = content_id
         
         # Get posts
         cursor.execute('''
@@ -6413,33 +6433,41 @@ def get_creator_posts(creator_address):
         ''', (creator_address, limit, (page - 1) * limit))
         
         rows = cursor.fetchall()
-        conn.close()
         
         posts = []
         for row in rows:
+            # Handle case where token info might be None from LEFT JOIN
+            row_token_name = row[15] if len(row) > 15 and row[15] else token_name
+            row_token_symbol = row[16] if len(row) > 16 and row[16] else token_symbol
+            row_token_price = row[17] if len(row) > 17 and row[17] else token_price
+            row_market_cap = row[18] if len(row) > 18 and row[18] else market_cap
+            row_creator = row[19] if len(row) > 19 and row[19] else creator_address
+            
             posts.append({
                 "postId": row[0],
                 "creatorAddress": row[1],
-                "tokenId": row[2],
+                "tokenId": row[2] or token_id,
                 "contentType": row[3],
                 "shelbyBlobId": row[4],
                 "shelbyBlobUrl": row[5],
                 "title": row[6],
                 "description": row[7],
-                "isPremium": bool(row[8]),
-                "minimumBalance": row[9],
-                "likesCount": row[10],
-                "commentsCount": row[11],
-                "sharesCount": row[12],
-                "viewsCount": row[13],
+                "isPremium": bool(row[8]) if row[8] is not None else False,
+                "minimumBalance": row[9] if row[9] is not None else 1,
+                "likesCount": row[10] if row[10] is not None else 0,
+                "commentsCount": row[11] if row[11] is not None else 0,
+                "sharesCount": row[12] if row[12] is not None else 0,
+                "viewsCount": row[13] if row[13] is not None else 0,
                 "createdAt": row[14],
-                "tokenName": row[15],
-                "tokenSymbol": row[16],
-                "tokenPrice": row[17] or 0,
-                "marketCap": row[18] or 0,
-                "creator": row[19],
-                "thumbnail": row[20]
+                "tokenName": row_token_name,
+                "tokenSymbol": row_token_symbol,
+                "tokenPrice": row_token_price or 0,
+                "marketCap": row_market_cap or 0,
+                "creator": row_creator,
+                "thumbnail": row[20] if len(row) > 20 else None
             })
+        
+        conn.close()
         
         return jsonify({
             "success": True,
@@ -6449,8 +6477,8 @@ def get_creator_posts(creator_address):
                 "tokenId": token_id,
                 "tokenName": token_name,
                 "tokenSymbol": token_symbol,
-                "tokenPrice": token_price,
-                "marketCap": market_cap
+                "tokenPrice": token_price or 0,
+                "marketCap": market_cap or 0
             },
             "page": page,
             "hasMore": len(posts) == limit
