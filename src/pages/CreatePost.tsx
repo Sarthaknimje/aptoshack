@@ -220,7 +220,7 @@ const CreatePost: React.FC = () => {
           await trackRewardedEvent(
             'post_created',
             PHOTON_CAMPAIGNS.POST_CREATED || PHOTON_CAMPAIGNS.CREATE_TOKEN || 'ea3bcaca-9ce4-4b54-b803-8b9be1f142ba',
-            { post_id: result.postId, content_type: contentType, is_tokenized: isTokenized }
+            { post_id: result.postId, content_type: contentType, is_premium: isPremium }
           )
           // Show PAT reward notification
           setPatRewardAmount(1)
