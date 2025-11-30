@@ -222,3 +222,25 @@ export async function deletePost(
   }
 }
 
+export async function deleteAllPosts(
+  userAddress: string
+): Promise<{ success: boolean; deletedCount?: number; error?: string }> {
+  try {
+    const response = await fetch(`${API_BASE}/posts/delete-all`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userAddress })
+    })
+    
+    if (!response.ok) {
+      const error = await response.json()
+      throw new Error(error.error || 'Failed to delete all posts')
+    }
+    
+    return await response.json()
+  } catch (error) {
+    console.error('Error deleting all posts:', error)
+    return { success: false, error: error instanceof Error ? error.message : 'Unknown error' }
+  }
+}
+

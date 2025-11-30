@@ -6256,6 +6256,10 @@ def delete_post(post_id):
             conn.close()
             return jsonify({"success": False, "error": "Unauthorized"}), 403
         
+        # Delete related comments and engagement
+        cursor.execute('DELETE FROM comments WHERE post_id = ?', (post_id,))
+        cursor.execute('DELETE FROM engagement WHERE post_id = ?', (post_id,))
+        
         # Delete post
         cursor.execute('DELETE FROM posts WHERE id = ?', (post_id,))
         conn.commit()
@@ -6267,6 +6271,46 @@ def delete_post(post_id):
         
     except Exception as e:
         logger.error(f"Error deleting post: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/posts/delete-all', methods=['DELETE'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def delete_all_posts():
+    """Delete all posts (admin/cleanup function)"""
+    try:
+        data = request.get_json() or {}
+        user_address = data.get('userAddress')
+        
+        if not user_address:
+            return jsonify({"success": False, "error": "User address required"}), 400
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Get count before deletion
+        cursor.execute('SELECT COUNT(*) FROM posts')
+        count_before = cursor.fetchone()[0]
+        
+        # Delete all related data
+        cursor.execute('DELETE FROM comments')
+        cursor.execute('DELETE FROM engagement')
+        cursor.execute('DELETE FROM posts')
+        
+        conn.commit()
+        conn.close()
+        
+        logger.info(f"✅ All posts deleted ({count_before} posts) by {user_address[:10]}...")
+        
+        return jsonify({
+            "success": True,
+            "message": f"Deleted {count_before} posts",
+            "deleted_count": count_before
+        })
+        
+    except Exception as e:
+        logger.error(f"Error deleting all posts: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 

@@ -137,21 +137,54 @@ const CreatePost: React.FC = () => {
       let shelbyBlobId: string | undefined
       let shelbyBlobUrl: string | undefined
 
+      // Step 1: Upload to Shelby first (if file exists)
       if (file && contentType !== 'text') {
         setUploading(true)
-        const blobName = `post_${token.token_symbol}_${Date.now()}`
-        const uploadResult = await uploadPremiumContent(file, blobName, 365)
-        shelbyBlobId = uploadResult.blobId
-        shelbyBlobUrl = uploadResult.blobUrl
-        setShelbyExplorerUrl(uploadResult.explorerUrl || null)
-        setShelbyBlobId(uploadResult.blobId)
-        if (uploadResult.accountAddress) {
-          setShelbyAccountAddress(uploadResult.accountAddress)
+        setError(null)
+        
+        try {
+          const blobName = `post_${token.token_symbol}_${Date.now()}`
+          console.log('📤 Step 1: Uploading to Shelby...', { blobName, contentType })
+          
+          const uploadResult = await uploadPremiumContent(file, blobName, 365)
+          
+          if (!uploadResult.blobId) {
+            throw new Error('Failed to upload to Shelby: No blob ID returned')
+          }
+          
+          shelbyBlobId = uploadResult.blobId
+          shelbyBlobUrl = uploadResult.blobUrl
+          setShelbyExplorerUrl(uploadResult.explorerUrl || null)
+          setShelbyBlobId(uploadResult.blobId)
+          
+          if (uploadResult.accountAddress) {
+            setShelbyAccountAddress(uploadResult.accountAddress)
+          }
+          
+          console.log('✅ Step 1 Complete: File uploaded to Shelby', { 
+            blobId: shelbyBlobId, 
+            accountAddress: uploadResult.accountAddress 
+          })
+          
+          // Refresh balance after upload
+          fetchShelbyBalance()
+        } catch (uploadError) {
+          console.error('❌ Shelby upload failed:', uploadError)
+          setError(`Failed to upload to Shelby: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`)
+          setUploading(false)
+          setCreating(false)
+          return
+        } finally {
+          setUploading(false)
         }
-        setUploading(false)
-        // Refresh balance after upload
-        fetchShelbyBalance()
       }
+      
+      // Step 2: Create post with Shelby blob reference
+      console.log('📝 Step 2: Creating post...', { 
+        contentType, 
+        hasShelbyBlob: !!shelbyBlobId,
+        shelbyBlobId 
+      })
 
       const tokenId = token.token_id || token.content_id || token.id
       
@@ -171,6 +204,12 @@ const CreatePost: React.FC = () => {
         description,
         isPremium: isPremium || isTokenized,
         minimumBalance: isTokenized ? 1 : minimumBalance
+      })
+
+      console.log('✅ Step 2 Complete: Post created', { 
+        success: result.success, 
+        postId: result.postId,
+        shelbyBlobId 
       })
 
       if (result.success) {
@@ -288,21 +327,60 @@ const CreatePost: React.FC = () => {
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 text-center shadow-2xl"
+            className="bg-gradient-to-br from-purple-900/20 via-violet-900/20 to-amber-900/20 backdrop-blur-xl border border-purple-500/30 rounded-2xl p-10 text-center shadow-2xl"
           >
-            <Coins className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-            <h3 className="text-xl font-bold text-white mb-2">No Token Found</h3>
-            <p className="text-gray-400 mb-6">
-              You need to create a creator token first before posting.
+            <motion.div
+              animate={{ 
+                scale: [1, 1.1, 1],
+                rotate: [0, 5, -5, 0]
+              }}
+              transition={{ 
+                duration: 3,
+                repeat: Infinity,
+                ease: "easeInOut"
+              }}
+              className="w-20 h-20 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-2xl"
+            >
+              <Coins className="w-10 h-10 text-white" />
+            </motion.div>
+            <h3 className="text-2xl font-bold text-white mb-3">
+              Create Your <span className="bg-gradient-to-r from-purple-400 via-violet-400 to-amber-400 bg-clip-text text-transparent">Creator Coin</span>
+            </h3>
+            <p className="text-gray-300 mb-2 text-lg">
+              Transform Your Content Into Digital Assets
             </p>
+            <p className="text-gray-400 mb-8 max-w-md mx-auto">
+              Monetize your social media content by creating tradeable tokens on the Aptos blockchain. Your audience can invest in your success, and you earn from every trade.
+            </p>
+            
+            <div className="grid grid-cols-3 gap-4 mb-8 max-w-2xl mx-auto">
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <Sparkles className="w-6 h-6 text-purple-400 mx-auto mb-2" />
+                <div className="text-sm font-semibold text-white">Instant Tokenization</div>
+              </div>
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <Coins className="w-6 h-6 text-amber-400 mx-auto mb-2" />
+                <div className="text-sm font-semibold text-white">5% Creator Earnings</div>
+              </div>
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <Lock className="w-6 h-6 text-violet-400 mx-auto mb-2" />
+                <div className="text-sm font-semibold text-white">Secure & Verified</div>
+              </div>
+            </div>
+            
             <motion.button
               onClick={() => navigate('/tokenize')}
-              whileHover={{ scale: 1.05 }}
+              whileHover={{ scale: 1.05, y: -2 }}
               whileTap={{ scale: 0.95 }}
-              className="px-6 py-3 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 text-white rounded-lg font-semibold shadow-lg hover:shadow-purple-500/50 transition-all"
+              className="px-8 py-4 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 text-white rounded-xl font-bold text-lg shadow-2xl hover:shadow-purple-500/50 transition-all flex items-center gap-3 mx-auto"
             >
-              Create Token
+              <Sparkles className="w-6 h-6" />
+              <span>Create Creator Coin</span>
             </motion.button>
+            
+            <p className="text-xs text-gray-500 mt-4">
+              You need to create a creator token first before posting content.
+            </p>
           </motion.div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
