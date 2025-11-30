@@ -42,11 +42,14 @@ const CreatePost: React.FC = () => {
     }
 
     // Fetch user's tokens
-    fetch(`http://localhost:5001/api/tokens?creator=${address}`)
+    fetch(`http://localhost:5001/api/user-tokens/${address}`)
       .then(res => res.json())
       .then(data => {
         if (data.success && data.tokens) {
           setUserTokens(data.tokens)
+        } else if (data.tokens) {
+          // Handle different response format
+          setUserTokens(Array.isArray(data.tokens) ? data.tokens : [])
         }
       })
       .catch(err => console.error('Error fetching tokens:', err))
