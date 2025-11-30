@@ -23,7 +23,16 @@ export async function uploadPremiumContent(
   file: File | Blob,
   blobName: string,
   expirationDays: number = 365
-): Promise<{ blobUrl: string; blobId: string; expirationDate: Date }> {
+): Promise<{ 
+  blobUrl: string; 
+  blobId: string; 
+  expirationDate: Date;
+  blobName?: string;
+  accountAddress?: string;
+  transactionHash?: string;
+  explorerUrl?: string;
+  aptosExplorerUrl?: string;
+}> {
   try {
     // Calculate expiration date
     const expirationDate = new Date()

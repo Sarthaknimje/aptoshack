@@ -5,7 +5,10 @@ import { useWallet } from '../contexts/WalletContext'
 import { usePhoton } from '../contexts/PhotonContext'
 import { uploadPremiumContent } from '../services/shelbyService'
 import { createPost } from '../services/postService'
+import { PHOTON_CAMPAIGNS } from '../services/photonService'
 import PremiumBackground from '../components/PremiumBackground'
+import PatRewardNotification from '../components/PatRewardNotification'
+import ShelbyStorageInfo from '../components/ShelbyStorageInfo'
 import { 
   Upload, 
   Image as ImageIcon, 
@@ -18,14 +21,15 @@ import {
   CheckCircle,
   Lock,
   Coins,
-  ExternalLink,
-  Sparkles
+  Sparkles,
+  Database,
+  AlertCircle
 } from 'lucide-react'
 
 const CreatePost: React.FC = () => {
   const navigate = useNavigate()
   const { address, isConnected } = useWallet()
-  const { trackRewardedEvent, PHOTON_CAMPAIGNS } = usePhoton()
+  const { trackRewardedEvent } = usePhoton()
   const [contentType, setContentType] = useState<'text' | 'image' | 'video' | 'reel' | 'audio'>('text')
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
@@ -39,9 +43,14 @@ const CreatePost: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState(false)
   const [shelbyExplorerUrl, setShelbyExplorerUrl] = useState<string | null>(null)
-  const [shelbyAptosExplorerUrl, setShelbyAptosExplorerUrl] = useState<string | null>(null)
   const [shelbyBlobId, setShelbyBlobId] = useState<string | null>(null)
+  const [shelbyAccountAddress, setShelbyAccountAddress] = useState<string | null>(null)
   const [userTokens, setUserTokens] = useState<any[]>([])
+  const [shelbyBalance, setShelbyBalance] = useState<{ apt: number; shelbyusd: number } | null>(null)
+  const [loadingShelbyBalance, setLoadingShelbyBalance] = useState(false)
+  const [showPatReward, setShowPatReward] = useState(false)
+  const [patRewardAmount, setPatRewardAmount] = useState(1)
+  const [patRewardType, setPatRewardType] = useState<'post_created' | 'token_created' | 'token_purchase' | 'token_sell'>('post_created')
 
   useEffect(() => {
     if (!isConnected || !address) {
@@ -59,7 +68,28 @@ const CreatePost: React.FC = () => {
         }
       })
       .catch(err => console.error('Error fetching tokens:', err))
+
+    // Fetch Shelby account balance
+    fetchShelbyBalance()
   }, [address, isConnected, navigate])
+
+  const fetchShelbyBalance = async () => {
+    setLoadingShelbyBalance(true)
+    try {
+      const response = await fetch('http://localhost:5001/api/shelby/account-balance')
+      const data = await response.json()
+      if (data.success) {
+        setShelbyBalance({ apt: data.apt_balance || 0, shelbyusd: data.shelbyusd_balance || 0 })
+        if (data.account_address) {
+          setShelbyAccountAddress(data.account_address)
+        }
+      }
+    } catch (err) {
+      console.error('Error fetching Shelby balance:', err)
+    } finally {
+      setLoadingShelbyBalance(false)
+    }
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0]
@@ -113,10 +143,14 @@ const CreatePost: React.FC = () => {
         const uploadResult = await uploadPremiumContent(file, blobName, 365)
         shelbyBlobId = uploadResult.blobId
         shelbyBlobUrl = uploadResult.blobUrl
-        setShelbyExplorerUrl(uploadResult.explorerUrl || `https://explorer.shelbynet.shelby.xyz/blob/${uploadResult.blobId}`)
-        setShelbyAptosExplorerUrl(uploadResult.aptosExplorerUrl)
+        setShelbyExplorerUrl(uploadResult.explorerUrl || null)
         setShelbyBlobId(uploadResult.blobId)
+        if (uploadResult.accountAddress) {
+          setShelbyAccountAddress(uploadResult.accountAddress)
+        }
         setUploading(false)
+        // Refresh balance after upload
+        fetchShelbyBalance()
       }
 
       const tokenId = token.token_id || token.content_id || token.id
@@ -144,9 +178,13 @@ const CreatePost: React.FC = () => {
         try {
           await trackRewardedEvent(
             'post_created',
-            PHOTON_CAMPAIGNS.CREATE_TOKEN || 'ea3bcaca-9ce4-4b54-b803-8b9be1f142ba',
+            PHOTON_CAMPAIGNS.POST_CREATED || PHOTON_CAMPAIGNS.CREATE_TOKEN || 'ea3bcaca-9ce4-4b54-b803-8b9be1f142ba',
             { post_id: result.postId, content_type: contentType, is_tokenized: isTokenized }
           )
+          // Show PAT reward notification
+          setPatRewardAmount(1)
+          setPatRewardType('post_created')
+          setShowPatReward(true)
         } catch (err) {
           console.error('Failed to reward PAT token for post creation:', err)
         }
@@ -171,35 +209,48 @@ const CreatePost: React.FC = () => {
       label: 'Text', 
       icon: FileText,
       gradient: 'from-blue-500 to-cyan-500',
-      bgGradient: 'from-blue-500/20 to-cyan-500/20'
+      bgGradient: 'from-blue-500/20 to-cyan-500/20',
+      isSpecial: false
     },
     { 
       value: 'image', 
       label: 'Image', 
       icon: ImageIcon,
       gradient: 'from-green-500 to-emerald-500',
-      bgGradient: 'from-green-500/20 to-emerald-500/20'
+      bgGradient: 'from-green-500/20 to-emerald-500/20',
+      isSpecial: false
     },
     { 
       value: 'video', 
       label: 'Video', 
       icon: Video,
       gradient: 'from-red-500 to-pink-500',
-      bgGradient: 'from-red-500/20 to-pink-500/20'
+      bgGradient: 'from-red-500/20 to-pink-500/20',
+      isSpecial: false
     },
     { 
       value: 'reel', 
       label: 'Reel', 
       icon: Zap,
       gradient: 'from-amber-500 to-orange-500',
-      bgGradient: 'from-amber-500/20 to-orange-500/20'
+      bgGradient: 'from-amber-500/20 to-orange-500/20',
+      isSpecial: false
     },
     { 
       value: 'audio', 
       label: 'Audio', 
       icon: Music,
       gradient: 'from-purple-500 to-pink-500',
-      bgGradient: 'from-purple-500/20 to-pink-500/20'
+      bgGradient: 'from-purple-500/20 to-pink-500/20',
+      isSpecial: false
+    },
+    { 
+      value: 'creatorcoin', 
+      label: 'CreatorCoin', 
+      icon: Coins,
+      gradient: 'from-violet-500 via-purple-500 to-amber-500',
+      bgGradient: 'from-violet-500/30 via-purple-500/30 to-amber-500/30',
+      isSpecial: true
     }
   ]
 
@@ -255,6 +306,70 @@ const CreatePost: React.FC = () => {
           </motion.div>
         ) : (
           <form onSubmit={handleSubmit} className="space-y-6">
+            {/* Shelby Account Balance */}
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-gradient-to-r from-purple-500/20 to-violet-500/20 rounded-lg">
+                    <Database className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <div>
+                    <div className="text-sm font-semibold text-gray-300">Shelby Storage Account</div>
+                    {shelbyAccountAddress && (
+                      <div className="text-xs text-gray-500 font-mono">
+                        {shelbyAccountAddress.slice(0, 10)}...{shelbyAccountAddress.slice(-8)}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4">
+                  {loadingShelbyBalance ? (
+                    <Loader className="w-4 h-4 animate-spin text-gray-400" />
+                  ) : shelbyBalance ? (
+                    <>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-400">APT Balance</div>
+                        <div className={`text-sm font-bold ${shelbyBalance.apt > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {shelbyBalance.apt.toFixed(4)} APT
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <div className="text-xs text-gray-400">ShelbyUSD</div>
+                        <div className={`text-sm font-bold ${shelbyBalance.shelbyusd > 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {shelbyBalance.shelbyusd.toFixed(4)} USD
+                        </div>
+                      </div>
+                      {(shelbyBalance.apt === 0 || shelbyBalance.shelbyusd === 0) && (
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.9 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          className="flex items-center gap-2 text-xs text-amber-400 bg-amber-500/10 px-3 py-1.5 rounded-lg border border-amber-500/30"
+                        >
+                          <AlertCircle className="w-4 h-4" />
+                          <span>Low balance</span>
+                        </motion.div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="text-xs text-gray-500">Unable to fetch</div>
+                  )}
+                  <motion.button
+                    type="button"
+                    onClick={fetchShelbyBalance}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="p-2 bg-white/5 hover:bg-white/10 rounded-lg border border-white/10 transition-colors"
+                  >
+                    <Loader className="w-4 h-4 text-gray-400" />
+                  </motion.button>
+                </div>
+              </div>
+            </motion.div>
+
             {/* Content Type - Beautiful Animated Selection */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -265,15 +380,19 @@ const CreatePost: React.FC = () => {
                 <Sparkles className="w-4 h-4 text-purple-400" />
                 Content Type
               </label>
-              <div className="grid grid-cols-5 gap-3">
+              <div className="grid grid-cols-6 gap-3">
                 <AnimatePresence mode="wait">
-                  {contentTypes.map(({ value, label, icon: Icon, gradient, bgGradient }) => {
+                  {contentTypes.map(({ value, label, icon: Icon, gradient, bgGradient, isSpecial }) => {
                     const isSelected = contentType === value
                     return (
                       <motion.button
                         key={value}
                         type="button"
                         onClick={() => {
+                          if (value === 'creatorcoin') {
+                            navigate('/tokenize')
+                            return
+                          }
                           setContentType(value as any)
                           if (value === 'text') {
                             setFile(null)
@@ -285,7 +404,9 @@ const CreatePost: React.FC = () => {
                         initial={{ opacity: 0, scale: 0.9 }}
                         animate={{ opacity: 1, scale: 1 }}
                         className={`relative flex flex-col items-center gap-2 p-4 rounded-xl transition-all border overflow-hidden group ${
-                          isSelected
+                          isSpecial
+                            ? `bg-gradient-to-br ${bgGradient} border-amber-500/50 text-white shadow-lg shadow-amber-500/30 hover:shadow-amber-500/50`
+                            : isSelected
                             ? `bg-gradient-to-br ${bgGradient} border-purple-500/50 text-white shadow-lg shadow-purple-500/30`
                             : 'bg-white/5 border-white/10 text-gray-400 hover:text-white hover:bg-white/10 hover:border-white/20'
                         }`}
@@ -348,9 +469,16 @@ const CreatePost: React.FC = () => {
                         >
                           <Icon className="w-6 h-6" />
                         </motion.div>
-                        <span className={`text-xs font-semibold relative z-10 ${isSelected ? 'text-white' : ''}`}>
+                        <span className={`text-xs font-semibold relative z-10 ${isSelected || isSpecial ? 'text-white' : ''}`}>
                           {label}
                         </span>
+                        {isSpecial && (
+                          <motion.div
+                            className="absolute -top-1 -right-1 w-3 h-3 bg-amber-400 rounded-full"
+                            animate={{ scale: [1, 1.2, 1] }}
+                            transition={{ duration: 1.5, repeat: Infinity }}
+                          />
+                        )}
                         
                         {/* Glow effect for selected */}
                         {isSelected && (
@@ -584,37 +712,14 @@ const CreatePost: React.FC = () => {
                   
                   {shelbyBlobId && (
                     <div className="space-y-3 text-sm">
-                      <div className="bg-white/5 rounded-lg p-3 border border-white/10">
-                        <div className="text-gray-300 mb-2 font-semibold">Shelby Storage Details:</div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="text-gray-400">Blob ID:</span>
-                            <code className="text-green-300 text-xs bg-green-500/20 px-2 py-1 rounded">{shelbyBlobId}</code>
-                          </div>
-                          {shelbyExplorerUrl && (
-                            <a
-                              href={shelbyExplorerUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-2 text-purple-400 hover:text-purple-300 transition-colors"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                              <span>View on Shelby Explorer</span>
-                            </a>
-                          )}
-                          {shelbyAptosExplorerUrl && (
-                            <a
-                              href={shelbyAptosExplorerUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-2 text-purple-400 hover:text-purple-300 transition-colors"
-                            >
-                              <ExternalLink className="w-4 h-4" />
-                              <span>View on Aptos Explorer</span>
-                            </a>
-                          )}
-                        </div>
-                      </div>
+                      <ShelbyStorageInfo
+                        blobId={shelbyBlobId}
+                        blobName={shelbyBlobId}
+                        blobUrl={shelbyBlobId ? `https://api.shelbynet.shelby.xyz/shelby/v1/blobs/${shelbyAccountAddress || 'default'}/${shelbyBlobId}` : undefined}
+                        accountAddress={shelbyAccountAddress || undefined}
+                        explorerUrl={shelbyExplorerUrl || undefined}
+                        contentType={contentType}
+                      />
                       <div className="flex gap-3">
                         <button
                           onClick={() => navigate('/feed')}
@@ -672,6 +777,14 @@ const CreatePost: React.FC = () => {
           </form>
         )}
       </main>
+
+      {/* PAT Reward Notification */}
+      <PatRewardNotification
+        show={showPatReward}
+        amount={patRewardAmount}
+        eventType={patRewardType}
+        onClose={() => setShowPatReward(false)}
+      />
     </div>
   )
 }

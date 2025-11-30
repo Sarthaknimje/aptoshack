@@ -323,6 +323,7 @@ export const PHOTON_CAMPAIGNS = {
   TOKEN_PURCHASE: PHOTON_CAMPAIGN_ID, // Reward for buying creator tokens
   TOKEN_SELL: PHOTON_CAMPAIGN_ID, // Reward for selling tokens
   CREATE_TOKEN: PHOTON_CAMPAIGN_ID, // Reward for creating tokens
+  POST_CREATED: PHOTON_CAMPAIGN_ID, // Reward for creating posts
   FIRST_TRADE: PHOTON_CAMPAIGN_ID, // Reward for first trade
   DAILY_TRADE: PHOTON_CAMPAIGN_ID, // Reward for daily trading
   REFERRAL: PHOTON_CAMPAIGN_ID, // Reward for referrals

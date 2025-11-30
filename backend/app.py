@@ -5749,6 +5749,83 @@ def shelby_download():
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
+@app.route('/api/shelby/account-balance', methods=['GET'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def shelby_account_balance():
+    """Get Shelby account balance (APT and ShelbyUSD)"""
+    try:
+        import subprocess
+        import re
+        
+        # Get account balance using Shelby CLI
+        result = subprocess.run(
+            ['shelby', 'account', 'balance'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            logger.warning(f"Shelby account balance check failed: {result.stderr}")
+            return jsonify({
+                "success": False,
+                "error": "Could not fetch Shelby account balance. Make sure Shelby CLI is configured.",
+                "apt_balance": 0,
+                "shelbyusd_balance": 0,
+                "account_address": None
+            }), 200  # Return 200 but with error flag
+        
+        output = result.stdout
+        
+        # Parse APT balance
+        apt_balance = 0
+        apt_match = re.search(r'APT[:\s]+([\d.]+)', output, re.IGNORECASE)
+        if apt_match:
+            apt_balance = float(apt_match.group(1))
+        
+        # Parse ShelbyUSD balance
+        shelbyusd_balance = 0
+        usd_match = re.search(r'ShelbyUSD[:\s]+([\d.]+)', output, re.IGNORECASE)
+        if usd_match:
+            shelbyusd_balance = float(usd_match.group(1))
+        
+        # Get account address
+        account_address = None
+        try:
+            account_result = subprocess.run(
+                ['shelby', 'account', 'list'],
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            if account_result.returncode == 0:
+                # Parse default account address
+                match = re.search(r'default.*?│\s*(0x[a-f0-9]{64})', account_result.stdout)
+                if match:
+                    account_address = match.group(1)
+        except:
+            pass
+        
+        return jsonify({
+            "success": True,
+            "apt_balance": apt_balance,
+            "shelbyusd_balance": shelbyusd_balance,
+            "account_address": account_address,
+            "raw_output": output[:500]  # Include for debugging
+        }), 200
+        
+    except Exception as e:
+        logger.error(f"Error getting Shelby account balance: {e}")
+        traceback.print_exc()
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "apt_balance": 0,
+            "shelbyusd_balance": 0,
+            "account_address": None
+        }), 200  # Return 200 but with error flag
+
 @app.route('/api/shelby/metadata', methods=['GET'])
 @cross_origin(supports_credentials=True)
 def shelby_metadata():
