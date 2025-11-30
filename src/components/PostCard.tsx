@@ -235,81 +235,105 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
         </div>
       </div>
 
-      {/* Content - Double Tap to Like */}
-      {post.shelbyBlobUrl && (
-        <div 
-          ref={imageRef}
-          className="w-full bg-black relative"
-          onDoubleClick={handleDoubleTap}
-        >
-          {/* Heart Animation on Double Tap */}
-          <AnimatePresence>
-            {showHeartAnimation && (
-              <motion.div
-                initial={{ scale: 0, opacity: 0 }}
-                animate={{ scale: [0, 1.2, 1], opacity: [0, 1, 0] }}
-                exit={{ scale: 0, opacity: 0 }}
-                transition={{ duration: 0.6 }}
-                className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
-              >
-                <Heart className="w-20 h-20 text-red-500 fill-red-500" />
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {post.contentType === 'image' && (
-            <img 
-              src={post.shelbyBlobUrl} 
-              alt={post.title || 'Post content'} 
-              className="w-full object-cover select-none"
-              style={{ maxHeight: '600px' }}
-              draggable={false}
+      {/* Content - Premium or Free */}
+      {post.shelbyBlobUrl ? (
+        post.isPremium ? (
+          // Premium Content - Use PremiumContentGate (shows "Invest to see" if no access)
+          <div className="w-full bg-black relative">
+            <PremiumContentGate
+              tokenData={{
+                creator: post.creatorAddress,
+                token_id: post.tokenId,
+                content_id: post.tokenId,
+                token_symbol: post.tokenSymbol,
+                token_name: post.tokenName
+              }}
+              premiumContentUrl={post.shelbyBlobUrl}
+              premiumContentType={
+                post.contentType === 'video' || post.contentType === 'reel' 
+                  ? 'video' 
+                  : post.contentType === 'image' 
+                  ? 'image' 
+                  : post.contentType === 'audio'
+                  ? 'audio'
+                  : 'document'
+              }
+              minimumBalance={post.minimumBalance || 1}
             />
-          )}
-          {post.contentType === 'video' && (
-            <video 
-              src={post.shelbyBlobUrl} 
-              controls 
-              className="w-full"
-              style={{ maxHeight: '600px' }}
-            >
-              Your browser does not support the video tag.
-            </video>
-          )}
-          {post.contentType === 'reel' && (
-            <div className="relative bg-black flex items-center justify-center" style={{ maxHeight: '800px' }}>
+          </div>
+        ) : (
+          // Free Content - Show directly
+          <div 
+            ref={imageRef}
+            className="w-full bg-black relative"
+            onDoubleClick={handleDoubleTap}
+          >
+            {/* Heart Animation on Double Tap */}
+            <AnimatePresence>
+              {showHeartAnimation && (
+                <motion.div
+                  initial={{ scale: 0, opacity: 0 }}
+                  animate={{ scale: [0, 1.2, 1], opacity: [0, 1, 0] }}
+                  exit={{ scale: 0, opacity: 0 }}
+                  transition={{ duration: 0.6 }}
+                  className="absolute inset-0 flex items-center justify-center pointer-events-none z-10"
+                >
+                  <Heart className="w-20 h-20 text-red-500 fill-red-500" />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {post.contentType === 'image' && (
+              <img 
+                src={post.shelbyBlobUrl} 
+                alt={post.title || 'Post content'} 
+                className="w-full object-cover select-none"
+                style={{ maxHeight: '600px' }}
+                draggable={false}
+              />
+            )}
+            {post.contentType === 'video' && (
               <video 
                 src={post.shelbyBlobUrl} 
                 controls 
-                className="w-full h-auto max-h-[800px] object-contain"
-                playsInline
+                className="w-full"
+                style={{ maxHeight: '600px' }}
               >
                 Your browser does not support the video tag.
               </video>
-            </div>
-          )}
-          {post.isPremium && post.shelbyBlobUrl && (
-            <div className="relative">
-              <PremiumContentGate
-                tokenData={{
-                  creator: post.creator,
-                  token_id: post.tokenId,
-                  token_symbol: post.tokenSymbol,
-                  token_name: post.tokenName
-                }}
-                premiumContentUrl={post.shelbyBlobUrl}
-                premiumContentType={
-                  post.contentType === 'video' || post.contentType === 'reel' 
-                    ? 'video' 
-                    : post.contentType === 'image' 
-                    ? 'image' 
-                    : 'document'
-                }
-                minimumBalance={post.minimumBalance}
-              />
-            </div>
-          )}
-        </div>
+            )}
+            {post.contentType === 'reel' && (
+              <div className="relative bg-black flex items-center justify-center" style={{ maxHeight: '800px' }}>
+                <video 
+                  src={post.shelbyBlobUrl} 
+                  controls 
+                  className="w-full h-auto max-h-[800px] object-contain"
+                  playsInline
+                >
+                  Your browser does not support the video tag.
+                </video>
+              </div>
+            )}
+            {post.contentType === 'audio' && (
+              <div className="w-full bg-gray-900 p-8 flex items-center justify-center">
+                <audio 
+                  src={post.shelbyBlobUrl} 
+                  controls 
+                  className="w-full max-w-md"
+                >
+                  Your browser does not support the audio tag.
+                </audio>
+              </div>
+            )}
+          </div>
+        )
+      ) : (
+        // Text-only post
+        post.contentType === 'text' && (
+          <div className="px-4 py-3">
+            <p className="text-gray-900 whitespace-pre-wrap">{post.description}</p>
+          </div>
+        )
       )}
 
       {/* Actions Bar */}

@@ -142,14 +142,15 @@ const CreatePost: React.FC = () => {
       let shelbyBlobId: string | undefined
       let shelbyBlobUrl: string | undefined
 
-      // Step 1: Upload to Shelby first (if file exists)
+      // Step 1: Upload to Shelby first (if file exists or if premium content)
+      // ALL posts with files MUST be uploaded to Shelby
       if (file && contentType !== 'text') {
         setUploading(true)
         setError(null)
         
         try {
-          const blobName = `post_${token.token_symbol}_${Date.now()}`
-          console.log('📤 Step 1: Uploading to Shelby...', { blobName, contentType })
+          const blobName = `post_${token.token_symbol}_${Date.now()}_${contentType}`
+          console.log('📤 Step 1: Uploading to Shelby Protocol...', { blobName, contentType, fileName: file.name })
           
           const uploadResult = await uploadPremiumContent(file, blobName, 365)
           
@@ -166,19 +167,25 @@ const CreatePost: React.FC = () => {
             setShelbyAccountAddress(uploadResult.accountAddress)
           }
           
-          console.log('✅ Step 1 Complete: File uploaded to Shelby', { 
-            blobId: shelbyBlobId, 
-            accountAddress: uploadResult.accountAddress 
+          console.log('✅ Step 1 Complete: Content uploaded to Shelby Protocol', { 
+            blobId: shelbyBlobId,
+            blobName: uploadResult.blobName,
+            accountAddress: uploadResult.accountAddress,
+            explorerUrl: uploadResult.explorerUrl
           })
         } catch (uploadError) {
           console.error('❌ Shelby upload failed:', uploadError)
-          setError(`Failed to upload to Shelby: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}`)
+          setError(`Failed to upload to Shelby Protocol: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}. Please try again.`)
           setUploading(false)
           setCreating(false)
           return
         } finally {
           setUploading(false)
         }
+      } else if (contentType === 'text' && isPremium) {
+        // For premium text posts, we might want to store the text content in Shelby too
+        // For now, text posts can be premium without file upload
+        console.log('📝 Text post with premium enabled (no file upload needed)')
       }
       
       // Step 2: Create post with Shelby blob reference
@@ -786,43 +793,77 @@ const CreatePost: React.FC = () => {
                 >
                   <div className="flex items-center gap-2 mb-4">
                     <CheckCircle className="w-5 h-5" />
-                    <span className="font-semibold">Post created successfully! +1 PAT token rewarded</span>
+                    <span className="font-semibold">Post published successfully! +1 PAT token rewarded</span>
                   </div>
                   
-                  {shelbyBlobId && (
-                    <div className="space-y-3 text-sm">
-                      <ShelbyStorageInfo
-                        blobId={shelbyBlobId}
-                        blobName={shelbyBlobId}
-                        blobUrl={shelbyBlobId ? `https://api.shelbynet.shelby.xyz/shelby/v1/blobs/${shelbyAccountAddress || 'default'}/${shelbyBlobId}` : undefined}
-                        accountAddress={shelbyAccountAddress || undefined}
-                        explorerUrl={shelbyExplorerUrl || undefined}
-                        contentType={contentType}
-                      />
-                      <div className="flex gap-3">
-                        <button
-                          onClick={() => navigate('/feed')}
-                          className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 text-white rounded-lg font-semibold hover:shadow-lg hover:shadow-purple-500/50 transition-all"
-                        >
-                          Go to Feed
-                        </button>
-                        <button
-                          onClick={() => {
-                            setSuccess(false)
-                            setShelbyExplorerUrl(null)
-                            setShelbyBlobId(null)
-                            setTitle('')
-                            setDescription('')
-                            setFile(null)
-                            setFilePreview(null)
-                          }}
-                          className="px-4 py-2 bg-white/10 text-white rounded-lg font-semibold hover:bg-white/20 transition-colors"
-                        >
-                          Create Another
-                        </button>
+                  <div className="space-y-4 text-sm">
+                    {shelbyBlobId ? (
+                      <>
+                        <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                          <div className="text-gray-300 mb-3 font-semibold flex items-center gap-2">
+                            <CheckCircle className="w-4 h-4 text-green-400" />
+                            Content Stored on Shelby Protocol
+                          </div>
+                          <ShelbyStorageInfo
+                            blobId={shelbyBlobId}
+                            blobName={shelbyBlobId}
+                            blobUrl={shelbyBlobId ? `https://api.shelbynet.shelby.xyz/shelby/v1/blobs/${shelbyAccountAddress || 'default'}/${shelbyBlobId}` : undefined}
+                            accountAddress={shelbyAccountAddress || undefined}
+                            explorerUrl={shelbyExplorerUrl || undefined}
+                            contentType={contentType}
+                          />
+                        </div>
+                        {isPremium && (
+                          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+                            <div className="flex items-start gap-3">
+                              <Lock className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                              <div>
+                                <p className="text-sm text-amber-300 font-semibold mb-1">Token-Gated Content</p>
+                                <p className="text-xs text-amber-200/80">
+                                  Users need to hold {minimumBalance} {creatorCoin?.token_symbol || 'Creator Coin'} to view this post. 
+                                  They will see "Invest to See" and can buy your coin from the marketplace.
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                        <p className="text-gray-300 text-sm">
+                          {isPremium 
+                            ? `Token-gated text post. Users need ${minimumBalance} ${creatorCoin?.token_symbol || 'Creator Coin'} to view.`
+                            : 'Text post published successfully.'
+                          }
+                        </p>
                       </div>
+                    )}
+                    
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => navigate('/feed')}
+                        className="flex-1 px-4 py-2 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 text-white rounded-lg font-semibold hover:shadow-lg hover:shadow-purple-500/50 transition-all"
+                      >
+                        View in Feed
+                      </button>
+                      <button
+                        onClick={() => {
+                          setSuccess(false)
+                          setShelbyExplorerUrl(null)
+                          setShelbyBlobId(null)
+                          setTitle('')
+                          setDescription('')
+                          setFile(null)
+                          setFilePreview(null)
+                          setIsPremium(false)
+                          setMinimumBalance(1)
+                        }}
+                        className="px-4 py-2 bg-white/10 text-white rounded-lg font-semibold hover:bg-white/20 transition-colors"
+                      >
+                        Create Another
+                      </button>
                     </div>
-                  )}
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>

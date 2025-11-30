@@ -353,11 +353,14 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
                 </div>
                 
                 <h3 className="text-3xl font-bold text-white mb-3 drop-shadow-lg">
-                  Premium Content Locked
+                  Invest to See
                 </h3>
                 
-                <p className="text-gray-200 mb-4 text-lg">
-                  Hold at least <span className="text-cyan-400 font-semibold">{minimumBalance} {tokenData.token_symbol || 'tokens'}</span> to unlock this premium content
+                <p className="text-gray-200 mb-2 text-lg">
+                  This content is token-gated
+                </p>
+                <p className="text-gray-300 mb-4 text-sm">
+                  Hold at least <span className="text-cyan-400 font-semibold">{minimumBalance} {tokenData.token_symbol || 'Creator Coin'}</span> to unlock this premium content
                 </p>
                 
                 {/* Debug Info */}
@@ -381,23 +384,27 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
                 <div className="flex flex-col sm:flex-row gap-4 justify-center mb-6">
                   <motion.button
                     onClick={handleBuyTokens}
-                    whileHover={{ scale: 1.05 }}
+                    whileHover={{ scale: 1.05, y: -2 }}
                     whileTap={{ scale: 0.95 }}
-                    className="px-8 py-4 bg-gradient-to-r from-cyan-600 to-blue-600 rounded-xl text-white font-semibold flex items-center justify-center gap-2 shadow-lg hover:shadow-cyan-500/50 transition-shadow"
+                    className="px-8 py-4 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 rounded-xl text-white font-bold text-lg flex items-center justify-center gap-2 shadow-2xl hover:shadow-purple-500/50 transition-all"
                   >
-                    <Coins className="w-5 h-5" />
-                    Buy Tokens to Unlock
+                    <Coins className="w-6 h-6" />
+                    Invest to See
                   </motion.button>
                   <motion.button
                     onClick={checkAccess}
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="px-8 py-4 bg-gray-700/80 backdrop-blur-sm rounded-xl text-white font-semibold border border-gray-600 hover:bg-gray-600/80 transition-colors"
+                    className="px-6 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-white font-semibold border border-white/20 hover:bg-white/20 transition-colors"
                   >
                     <Eye className="w-5 h-5 inline mr-2" />
-                    Refresh Access
+                    Refresh
                   </motion.button>
                 </div>
+                
+                <p className="text-xs text-gray-400 text-center">
+                  Go to marketplace to buy {tokenData.token_symbol || 'Creator Coin'} and unlock this content
+                </p>
                 
                 {/* Preview Badge */}
                 <div className="inline-flex items-center gap-2 px-4 py-2 bg-black/40 backdrop-blur-sm rounded-full border border-white/20">
