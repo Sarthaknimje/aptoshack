@@ -50,33 +50,165 @@ const PhotonStatus: React.FC = () => {
     const originalWarn = console.warn
     const originalError = console.error
 
-    const handleLog = (message: string) => {
+    const handleLog = (message: string, ...args: any[]) => {
       if (typeof message === 'string') {
         // Detect Photon events
-        if (message.includes('Photon') || message.includes('PAT tokens') || message.includes('event triggered')) {
-          const isRewarded = message.includes('Rewarded event') || message.includes('PAT tokens')
+        const isPhotonEvent = message.includes('Photon') || 
+                             message.includes('PAT tokens') || 
+                             message.includes('event tracked') ||
+                             message.includes('event triggered') ||
+                             message.includes('Rewarded event') ||
+                             message.includes('Unrewarded event') ||
+                             message.includes('Photon Event Details')
+        
+        if (isPhotonEvent) {
+          const isRewarded = message.includes('Rewarded event') || 
+                            message.includes('PAT tokens') ||
+                            message.includes('token_purchase') ||
+                            message.includes('token_sell')
           const isError = message.includes('❌') || message.includes('Error')
           
-          // Extract event type
+          // Extract event type from various patterns
           let eventType = 'unknown'
-          if (message.includes('token_purchase')) eventType = 'Token Purchase'
-          else if (message.includes('token_sell')) eventType = 'Token Sell'
-          else if (message.includes('view_content')) eventType = 'Content View'
-          else if (message.includes('create_token')) eventType = 'Token Creation'
-          else if (message.includes('login')) eventType = 'Login'
+          let tokenAmount: number | undefined = undefined
           
-          // Extract token amount
-          const tokenMatch = message.match(/(\d+\.?\d*)\s*PAT tokens?/i)
-          const tokenAmount = tokenMatch ? parseFloat(tokenMatch[1]) : undefined
+          // Try to extract from "eventType=eventType" pattern (new format)
+          const eventTypeMatch = message.match(/eventType=(\w+)/i)
+          if (eventTypeMatch) {
+            const eventTypeValue = eventTypeMatch[1]
+            const eventTypeMap: Record<string, string> = {
+              'token_purchase': 'Token Purchase',
+              'token_sell': 'Token Sell',
+              'view_content': 'Content View',
+              'create_token': 'Token Creation',
+              'login': 'Login',
+              'token_share': 'Token Share'
+            }
+            eventType = eventTypeMap[eventTypeValue] || eventTypeValue.charAt(0).toUpperCase() + eventTypeValue.slice(1).replace(/_/g, ' ')
+          }
           
-          setEventLogs(prev => [{
-            id: Date.now().toString(),
-            type: isRewarded ? 'rewarded' : 'unrewarded',
-            eventType,
-            timestamp: new Date(),
-            tokenAmount,
-            success: !isError
-          }, ...prev].slice(0, 20)) // Keep last 20 events
+          // Try to extract from "event tracked: eventType" pattern
+          if (eventType === 'unknown') {
+            const trackedMatch = message.match(/event tracked:\s*eventType=(\w+)/i) || 
+                                message.match(/event tracked:\s*(\w+)/i)
+            if (trackedMatch) {
+              const eventTypeValue = trackedMatch[1]
+              const eventTypeMap: Record<string, string> = {
+                'token_purchase': 'Token Purchase',
+                'token_sell': 'Token Sell',
+                'view_content': 'Content View',
+                'create_token': 'Token Creation',
+                'login': 'Login',
+                'token_share': 'Token Share'
+              }
+              eventType = eventTypeMap[eventTypeValue] || eventTypeValue.charAt(0).toUpperCase() + eventTypeValue.slice(1).replace(/_/g, ' ')
+            }
+          }
+          
+          // Try to parse JSON from "Photon Event Details:" logs
+          if (eventType === 'unknown' && message.includes('Photon Event Details:')) {
+            try {
+              // Find JSON object in the message
+              const jsonMatch = message.match(/\{.*\}/s)
+              if (jsonMatch) {
+                const parsed = JSON.parse(jsonMatch[0])
+                if (parsed.eventType) {
+                  const eventTypeMap: Record<string, string> = {
+                    'token_purchase': 'Token Purchase',
+                    'token_sell': 'Token Sell',
+                    'view_content': 'Content View',
+                    'create_token': 'Token Creation',
+                    'login': 'Login',
+                    'token_share': 'Token Share'
+                  }
+                  eventType = eventTypeMap[parsed.eventType] || parsed.eventType.charAt(0).toUpperCase() + parsed.eventType.slice(1).replace(/_/g, ' ')
+                  if (parsed.tokenAmount !== undefined) {
+                    tokenAmount = parsed.tokenAmount
+                  }
+                  // Update isRewarded based on parsed type
+                  if (parsed.type === 'rewarded') {
+                    isRewarded = true
+                  }
+                }
+              }
+            } catch (e) {
+              // Ignore parse errors
+            }
+          }
+          
+          // Try to extract from "eventType:" in object logs
+          if (eventType === 'unknown') {
+            const eventTypeMatch = message.match(/["']?eventType["']?\s*:\s*["']?(\w+)["']?/i)
+            if (eventTypeMatch) {
+              const eventTypeValue = eventTypeMatch[1]
+              const eventTypeMap: Record<string, string> = {
+                'token_purchase': 'Token Purchase',
+                'token_sell': 'Token Sell',
+                'view_content': 'Content View',
+                'create_token': 'Token Creation',
+                'login': 'Login',
+                'token_share': 'Token Share'
+              }
+              eventType = eventTypeMap[eventTypeValue] || eventTypeValue.charAt(0).toUpperCase() + eventTypeValue.slice(1).replace(/_/g, ' ')
+            }
+          }
+          
+          // Fallback: try to find event type in the message
+          if (eventType === 'unknown') {
+            if (message.includes('token_purchase')) eventType = 'Token Purchase'
+            else if (message.includes('token_sell')) eventType = 'Token Sell'
+            else if (message.includes('view_content')) eventType = 'Content View'
+            else if (message.includes('create_token')) eventType = 'Token Creation'
+            else if (message.includes('login')) eventType = 'Login'
+            else if (message.includes('token_share')) eventType = 'Token Share'
+          }
+          
+          // Extract token amount from various patterns
+          const tokenMatch = message.match(/(\d+\.?\d*)\s*PAT tokens?/i) ||
+                           message.match(/token_amount["']?\s*:\s*(\d+\.?\d*)/i)
+          if (tokenMatch) {
+            tokenAmount = parseFloat(tokenMatch[1])
+          }
+          
+          // Also check args for object data
+          args.forEach(arg => {
+            if (typeof arg === 'object' && arg !== null) {
+              try {
+                const objStr = JSON.stringify(arg)
+                if (objStr.includes('eventType')) {
+                  const parsed = JSON.parse(objStr)
+                  if (parsed.eventType) {
+                    const eventTypeMap: Record<string, string> = {
+                      'token_purchase': 'Token Purchase',
+                      'token_sell': 'Token Sell',
+                      'view_content': 'Content View',
+                      'create_token': 'Token Creation',
+                      'login': 'Login',
+                      'token_share': 'Token Share'
+                    }
+                    eventType = eventTypeMap[parsed.eventType] || parsed.eventType.charAt(0).toUpperCase() + parsed.eventType.slice(1).replace(/_/g, ' ')
+                  }
+                  if (parsed.token_amount !== undefined) {
+                    tokenAmount = parsed.token_amount
+                  }
+                }
+              } catch (e) {
+                // Ignore parse errors
+              }
+            }
+          })
+          
+          // Only add if we have a valid event type
+          if (eventType !== 'unknown') {
+            setEventLogs(prev => [{
+              id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+              type: isRewarded ? 'rewarded' : 'unrewarded',
+              eventType,
+              timestamp: new Date(),
+              tokenAmount,
+              success: !isError
+            }, ...prev].slice(0, 50)) // Keep last 50 events
+          }
         }
       }
     }
@@ -84,17 +216,52 @@ const PhotonStatus: React.FC = () => {
     // Override console methods
     console.log = (...args) => {
       originalLog(...args)
-      args.forEach(arg => handleLog(String(arg)))
+      // Try to handle as string first, then pass all args
+      args.forEach((arg, index) => {
+        if (typeof arg === 'string') {
+          handleLog(arg, ...args)
+        } else {
+          // For objects, stringify and check
+          try {
+            const str = JSON.stringify(arg)
+            handleLog(str, ...args)
+          } catch (e) {
+            handleLog(String(arg), ...args)
+          }
+        }
+      })
     }
 
     console.warn = (...args) => {
       originalWarn(...args)
-      args.forEach(arg => handleLog(String(arg)))
+      args.forEach((arg, index) => {
+        if (typeof arg === 'string') {
+          handleLog(arg, ...args)
+        } else {
+          try {
+            const str = JSON.stringify(arg)
+            handleLog(str, ...args)
+          } catch (e) {
+            handleLog(String(arg), ...args)
+          }
+        }
+      })
     }
 
     console.error = (...args) => {
       originalError(...args)
-      args.forEach(arg => handleLog(String(arg)))
+      args.forEach((arg, index) => {
+        if (typeof arg === 'string') {
+          handleLog(arg, ...args)
+        } else {
+          try {
+            const str = JSON.stringify(arg)
+            handleLog(str, ...args)
+          } catch (e) {
+            handleLog(String(arg), ...args)
+          }
+        }
+      })
     }
 
     return () => {

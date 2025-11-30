@@ -144,14 +144,18 @@ export async function triggerRewardedEvent(
 
     const data = await response.json()
     const tokenAmount = data.data?.token_amount || 0
-    console.log(`✅ Rewarded event triggered: ${eventType} - ${tokenAmount} PAT tokens`)
-    console.log('📊 Photon Event Details:', {
+    
+    // Log in a format that's easy to parse
+    const eventTypeDisplay = eventType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+    console.log(`✅ Rewarded event triggered: eventType=${eventType} - ${tokenAmount} PAT tokens`)
+    console.log('📊 Photon Event Details:', JSON.stringify({
       eventId,
       eventType,
       tokenAmount,
       campaignId,
-      success: data.success
-    })
+      success: data.success,
+      type: 'rewarded'
+    }))
     return data
   } catch (error) {
     console.error('❌ Error triggering rewarded event:', error)
@@ -208,13 +212,17 @@ export async function triggerUnrewardedEvent(
     }
 
     const data = await response.json()
-    console.log(`✅ Unrewarded event tracked: ${eventType}`)
-    console.log('📊 Photon Event Details:', {
+    
+    // Log in a format that's easy to parse
+    console.log(`✅ Unrewarded event tracked: eventType=${eventType}`)
+    console.log('📊 Photon Event Details:', JSON.stringify({
       eventId,
       eventType,
       campaignId,
-      success: data.success
-    })
+      success: data.success,
+      type: 'unrewarded',
+      tokenAmount: 0
+    }))
     return data
   } catch (error) {
     console.error('❌ Error triggering unrewarded event:', error)
