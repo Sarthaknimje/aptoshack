@@ -1,4 +1,4 @@
-# 🚀 Creator Coin - Decentralized Social Media Platform
+# 🚀 Creator Coin - Decentralized Social Media Platform : given links of shelby uploaded docs and images in shelby protocol integration
 
 > **Transform Your Content Into Digital Assets. Build Your Empire. Reward Your Holders.**
 
@@ -357,6 +357,30 @@ aptos move publish --named-addresses creatorvault=YOUR_ADDRESS
 ### Overview
 
 Shelby Protocol is a **decentralized blob storage network** built on Aptos. All content (images, videos, documents) is stored on Shelby for permanent, censorship-resistant storage.
+Premium content uploaded to Shelby (8 files)
+
+Token: WORKSHOP - "blockchain"
+Blob ID: premium_WORKSHOP_test
+Token: XFO - "🚀 CrossFi's Biggest Partnership"
+Blob ID: premium_XFO_1764456990935
+Token: TXI - "transfer xfu"
+Blob ID: premium_TXI_1764460802989
+URL: https://api.shelbynet.shelby.xyz/shelby/v1/blobs/0x815d4e93e2eaad3680be8583d95352fb6b2f3858c39a37aca906eae26a09b18f/premium_TXI_1764460802989
+Token: RECORD - "gpa recording"
+Blob ID: premium_RECORD_1764461781731
+URL: https://api.shelbynet.shelby.xyz/shelby/v1/blobs/0x815d4e93e2eaad3680be8583d95352fb6b2f3858c39a37aca906eae26a09b18f/premium_RECORD_1764461781731
+Token: PREDICT - "btc"
+Blob ID: premium_PREDICT_1764464633809
+URL: https://api.shelbynet.shelby.xyz/shelby/v1/blobs/0x815d4e93e2eaad3680be8583d95352fb6b2f3858c39a37aca906eae26a09b18f/premium_PREDICT_1764464633809
+Token: ALGO - "algo win"
+Blob ID: premium_ALGO_1764464852396
+URL: https://api.shelbynet.shelby.xyz/shelby/v1/blobs/0x815d4e93e2eaad3680be8583d95352fb6b2f3858c39a37aca906eae26a09b18f/premium_ALGO_1764464852396
+Token: AWESOME - "2025 Called"
+Blob ID: premium_AWESOME_1764464989412
+URL: https://api.shelbynet.shelby.xyz/shelby/v1/blobs/0x815d4e93e2eaad3680be8583d95352fb6b2f3858c39a37aca906eae26a09b18f/premium_AWESOME_1764464989412
+Token: WALLET - "xfi wallet"
+Blob ID: premium_WALLET_1764485190211
+URL: https://api.shelbynet.shelby.xyz/shelby/v1/blobs/0x815d4e93e2eaad3680be8583d95352fb6b2f3858c39a37aca906eae26a09b18f/premium_WALLET_1764485190211
 
 ### Features
 
