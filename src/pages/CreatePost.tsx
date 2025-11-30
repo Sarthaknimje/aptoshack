@@ -21,9 +21,7 @@ import {
   CheckCircle,
   Lock,
   Coins,
-  Sparkles,
-  Database,
-  AlertCircle
+  Sparkles
 } from 'lucide-react'
 
 const CreatePost: React.FC = () => {
