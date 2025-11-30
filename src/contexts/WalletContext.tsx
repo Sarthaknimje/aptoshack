@@ -78,6 +78,8 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
       setAddress(account.address)
       setIsConnectedToPetraWallet(true)
       setPetraWallet(wallet)
+      
+      // Fetch balance immediately and set up periodic refresh
       await fetchBalance(account.address)
     } catch (error: any) {
       console.error('Error connecting to Petra Wallet:', error)
@@ -115,7 +117,13 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
   }
 
   const fetchBalance = async (addr: string) => {
+    if (!addr) {
+      setBalance(0)
+      return
+    }
+    
     try {
+      console.log(`[fetchBalance] Fetching balance for ${addr.slice(0, 8)}...`)
       // Try both testnet and mainnet to find the balance
       const networks = [
         { name: 'testnet', url: 'https://fullnode.testnet.aptoslabs.com/v1' },
@@ -143,12 +151,11 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
                 ? parseInt(balanceStr, 10) 
                 : parseInt(String(balanceStr), 10)
               
-              if (balanceInOctas > 0) {
-                const balanceInAptos = balanceInOctas / 100000000
-                setBalance(balanceInAptos)
-                console.log(`✅ Fetched Aptos balance from ${network.name}: ${balanceInAptos} APTOS (${balanceInOctas} octas)`)
-                return
-              }
+              // Always set balance, even if 0
+              const balanceInAptos = balanceInOctas / 100000000
+              setBalance(balanceInAptos)
+              console.log(`✅ Fetched Aptos balance from ${network.name}: ${balanceInAptos} APTOS (${balanceInOctas} octas)`)
+              return
             }
           }
           
@@ -168,12 +175,11 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
               const coinValue = aptCoin.data.coin?.value || aptCoin.data.value || aptCoin.coin?.value || '0'
               const balanceInOctas = parseInt(String(coinValue), 10)
               
-              if (balanceInOctas > 0) {
-                const balanceInAptos = balanceInOctas / 100000000
-                setBalance(balanceInAptos)
-                console.log(`✅ Fetched Aptos balance from ${network.name} resources: ${balanceInAptos} APTOS`)
-                return
-              }
+              // Always set balance, even if 0
+              const balanceInAptos = balanceInOctas / 100000000
+              setBalance(balanceInAptos)
+              console.log(`✅ Fetched Aptos balance from ${network.name} resources: ${balanceInAptos} APTOS`)
+              return
             }
           }
         } catch (networkError) {
@@ -197,25 +203,44 @@ export const WalletProvider: React.FC<{ children: ReactNode }> = ({ children }) 
     if (wallet) {
       setPetraWallet(wallet)
 
-      // Check for existing connection
-    const checkConnection = async () => {
-      try {
-          const isConnected = await wallet.isConnected()
-          if (isConnected) {
-            const account = await wallet.account()
-            setAccounts([account.address])
-            setAddress(account.address)
-            setIsConnectedToPetraWallet(true)
-            await fetchBalance(account.address)
-        }
-      } catch (error) {
-        console.error('Error checking connection:', error)
-      }
-    }
-
-    checkConnection()
+      // DO NOT auto-connect on refresh - user must manually connect
+      // This ensures wallet disconnects after refresh
+      // const checkConnection = async () => {
+      //   try {
+      //     const isConnected = await wallet.isConnected()
+      //     if (isConnected) {
+      //       const account = await wallet.account()
+      //       setAccounts([account.address])
+      //       setAddress(account.address)
+      //       setIsConnectedToPetraWallet(true)
+      //       await fetchBalance(account.address)
+      //     }
+      //   } catch (error) {
+      //     console.error('Error checking connection:', error)
+      //   }
+      // }
+      // checkConnection()
     }
   }, [])
+  
+  // Refresh balance periodically when connected
+  useEffect(() => {
+    if (!isConnectedToPetraWallet || !address) return
+    
+    // Fetch balance immediately when connected
+    fetchBalance(address)
+    
+    // Set up interval to refresh balance every 5 seconds
+    const balanceInterval = setInterval(() => {
+      if (isConnectedToPetraWallet && address) {
+        fetchBalance(address)
+      }
+    }, 5000) // Refresh every 5 seconds
+    
+    return () => {
+      clearInterval(balanceInterval)
+    }
+  }, [isConnectedToPetraWallet, address])
 
   const value: WalletContextType = {
     wallet: { address, isConnected: isConnectedToPetraWallet, loading: isLoading },

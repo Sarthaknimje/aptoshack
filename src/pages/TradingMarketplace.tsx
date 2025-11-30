@@ -39,7 +39,7 @@ import {
 import { useWallet } from '../contexts/WalletContext'
 import { PetraWalletIcon, YouTubeIcon, InstagramIcon, TwitterIcon, LinkedInIcon } from '../assets/icons'
 import { TradingService, TradeEstimate } from '../services/tradingService'
-import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract, getTokenBalance, getCurrentSupply, getTotalSupply, getAptReserve } from '../services/petraWalletService'
+import { createASAWithPetra, buyTokensWithContract, sellTokensWithContract, transferTokensWithContract, getTokenBalance, getCurrentSupply, getTotalSupply, getAptReserve, clearSupplyCache, clearAllSupplyCache } from '../services/petraWalletService'
 import TradeSuccessModal from '../components/TradeSuccessModal'
 import ConfettiAnimation from '../components/ConfettiAnimation'
 import BondingCurveChart from '../components/BondingCurveChart'
@@ -319,8 +319,9 @@ const TradingMarketplace: React.FC = () => {
   }
 
   // Fetch user's token balance from blockchain
-  const fetchUserTokenBalance = async (tokenIdentifier: string | number) => {
+  const fetchUserTokenBalance = async (tokenIdentifier: string | number, forceRefresh: boolean = false) => {
     if (!address || !isConnected || !tokenIdentifier) {
+      console.warn(`[fetchUserTokenBalance] Missing requirements: address=${!!address}, isConnected=${isConnected}, tokenIdentifier=${!!tokenIdentifier}`)
       setUserTokenBalance(0)
       return
     }
@@ -329,7 +330,7 @@ const TradingMarketplace: React.FC = () => {
       // For Aptos tokens, we need creator address and token_id (content_id)
       // Get tokenId (content_id) from tokenData - this is what the contract expects
       if (!tokenData) {
-        console.warn('tokenData is null, cannot fetch token balance')
+        console.warn('[fetchUserTokenBalance] tokenData is null, cannot fetch token balance')
         setUserTokenBalance(0)
         return
       }
@@ -337,7 +338,7 @@ const TradingMarketplace: React.FC = () => {
       // Use content_id if available (most accurate), otherwise use token_id or tokenIdentifier
       const tokenId = tokenData.content_id || tokenData.token_id || String(tokenIdentifier)
       if (!tokenId) {
-        console.warn('Missing tokenId (content_id) in tokenData')
+        console.warn('[fetchUserTokenBalance] Missing tokenId (content_id) in tokenData')
         setUserTokenBalance(0)
         return
       }
@@ -346,18 +347,72 @@ const TradingMarketplace: React.FC = () => {
       // Use creator address from tokenData
       const creatorAddress = tokenData.creator
       if (!creatorAddress) {
-        console.warn('Missing creator address in tokenData')
+        console.warn('[fetchUserTokenBalance] Missing creator address in tokenData')
         setUserTokenBalance(0)
         return
       }
       
-      console.log(`[fetchUserTokenBalance] Fetching balance for creator=${creatorAddress}, tokenId=${tokenId}, account=${address}`)
+      // Try to get cached balance from DB first (instant) - but ALWAYS verify from contract
+      let cachedBalance: number | null = null
+      try {
+        const cacheResponse = await fetch(
+          `http://localhost:5001/api/user-balance-cache?userAddress=${address}&tokenId=${encodeURIComponent(String(tokenId))}&creatorAddress=${creatorAddress}`
+        )
+        if (cacheResponse.ok) {
+          const cacheData = await cacheResponse.json()
+          if (cacheData.success && cacheData.balance !== undefined) {
+            cachedBalance = cacheData.balance
+            console.log(`[fetchUserTokenBalance] Cached balance from DB: ${cachedBalance} tokens`)
+            // Use cached balance immediately for instant UI update
+            if (cachedBalance > 0) {
+              setUserTokenBalance(cachedBalance)
+            }
+          }
+        }
+      } catch (cacheError) {
+        console.warn(`[fetchUserTokenBalance] Could not fetch cached balance (non-critical):`, cacheError)
+      }
+      
+      // Clear cache if force refresh is requested
+      if (forceRefresh) {
+        clearSupplyCache(creatorAddress, tokenId, address)
+        // Small delay to ensure cache is cleared
+        await new Promise(resolve => setTimeout(resolve, 100))
+      }
+      
+      console.log(`[fetchUserTokenBalance] Fetching balance from contract: creator=${creatorAddress.slice(0, 10)}..., tokenId=${String(tokenId).slice(0, 20)}..., account=${address.slice(0, 10)}...${forceRefresh ? ' (force refresh)' : ''}`)
+      
+      // ALWAYS fetch from contract to get accurate balance (critical for Shelby premium access)
+      // This is the source of truth
       const balance = await getTokenBalance(creatorAddress, tokenId, address)
-      console.log(`[fetchUserTokenBalance] Balance fetched: ${balance} tokens`)
+      console.log(`[fetchUserTokenBalance] ✅ Balance fetched from contract: ${balance} tokens`)
+      console.log(`[fetchUserTokenBalance] Previous cached balance: ${cachedBalance}, Contract balance: ${balance}`)
+      
+      // Always update balance with contract value (source of truth)
+      // Even if it's 0, we need to show the correct state
       setUserTokenBalance(balance)
+      
+      // Log current state for debugging
+      console.log(`[fetchUserTokenBalance] ✅ Balance state updated. Current userTokenBalance: ${balance}`)
+      
+      // If contract balance differs from cache, log it
+      if (cachedBalance !== null && cachedBalance !== balance) {
+        console.warn(`[fetchUserTokenBalance] ⚠️ Balance mismatch! Cache: ${cachedBalance}, Contract: ${balance}. Using contract value.`)
+      }
     } catch (error) {
-      console.error('Error fetching token balance:', error)
-      setUserTokenBalance(0)
+      console.error('❌ Error fetching token balance:', error)
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      
+      // Don't set to 0 on error - keep previous balance to avoid showing 0 incorrectly
+      // Only set to 0 if we're sure there's an error
+      if (errorMessage.includes('E_TOKEN_NOT_FOUND') || errorMessage.includes('4016')) {
+        // Token doesn't exist - set to 0
+        console.warn(`[fetchUserTokenBalance] Token not found, setting balance to 0`)
+        setUserTokenBalance(0)
+      } else {
+        // Keep previous balance - don't overwrite with 0 on transient errors
+        console.warn(`[fetchUserTokenBalance] Error occurred but keeping previous balance to avoid showing 0 incorrectly`)
+      }
     }
   }
 
@@ -366,22 +421,64 @@ const TradingMarketplace: React.FC = () => {
     if (isConnected && balance) {
       setUserAlgoBalance(balance)
       // Fetch token balance when token data is available
-      // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
-      const balanceIdentifier = tokenData?.token_id || tokenData?.asa_id
-      if (balanceIdentifier) {
-        fetchUserTokenBalance(balanceIdentifier)
+      // For Aptos tokens, use content_id (required for contract calls)
+      // For legacy Algorand tokens, use asa_id
+      const balanceIdentifier = tokenData?.content_id || tokenData?.token_id || tokenData?.asa_id
+      if (balanceIdentifier && tokenData?.creator) {
+        console.log(`[TradingMarketplace] Initializing balance fetch for token: ${balanceIdentifier}`)
+        // For Aptos tokens, fetchUserTokenBalance will use content_id from tokenData internally
+        fetchUserTokenBalance(balanceIdentifier, false)
       }
     }
-  }, [isConnected, balance, tokenData?.token_id, tokenData?.asa_id])
+  }, [isConnected, balance, tokenData?.content_id, tokenData?.token_id, tokenData?.asa_id, tokenData?.creator])
   
-  // Refresh balance when switching to sell tab
+  // Refresh balance when switching to sell tab (force refresh to avoid stale cache)
   useEffect(() => {
-    // Use token_id (Aptos) if available, otherwise fallback to asa_id (Algorand)
-    const balanceIdentifier = tokenData?.token_id || tokenData?.asa_id
-    if (activeTab === 'sell' && isConnected && address && balanceIdentifier) {
-      fetchUserTokenBalance(balanceIdentifier)
+    // For Aptos tokens, use content_id (required for contract calls)
+    // For legacy Algorand tokens, use asa_id
+    const balanceIdentifier = tokenData?.content_id || tokenData?.token_id || tokenData?.asa_id
+    if (activeTab === 'sell' && isConnected && address && balanceIdentifier && tokenData?.creator) {
+      console.log(`[TradingMarketplace] Switching to sell tab - fetching balance...`)
+      console.log(`[TradingMarketplace] Balance identifier: ${balanceIdentifier}`)
+      console.log(`[TradingMarketplace] Creator: ${tokenData.creator}`)
+      console.log(`[TradingMarketplace] Current userTokenBalance state: ${userTokenBalance}`)
+      
+      // Force refresh when switching to sell tab to ensure accurate balance
+      // Add small delay to ensure state is ready
+      setTimeout(() => {
+        fetchUserTokenBalance(balanceIdentifier, true)
+      }, 100)
     }
-  }, [activeTab, isConnected, address, tokenData?.token_id, tokenData?.asa_id])
+  }, [activeTab, isConnected, address, tokenData?.content_id, tokenData?.token_id, tokenData?.asa_id, tokenData?.creator])
+  
+  // Periodically refresh balance when on sell tab (every 5 seconds)
+  // But don't refresh while user is typing (debounce)
+  useEffect(() => {
+    if (activeTab !== 'sell' || !isConnected || !address || !tokenData?.creator) return
+    
+    const balanceIdentifier = tokenData?.content_id || tokenData?.token_id || tokenData?.asa_id
+    if (!balanceIdentifier) return
+    
+    // Refresh immediately only if amount is empty (not typing)
+    if (!amount || parseFloat(amount) === 0) {
+      fetchUserTokenBalance(balanceIdentifier, false) // Don't force refresh on periodic updates
+    }
+    
+    // Set up interval to refresh every 5 seconds
+    // But skip refresh if user is actively typing
+    const balanceInterval = setInterval(() => {
+      if (activeTab === 'sell' && isConnected && address && balanceIdentifier && tokenData?.creator) {
+        // Only refresh if not actively typing (no amount or amount is stable)
+        if (!amount || parseFloat(amount) === 0) {
+          fetchUserTokenBalance(balanceIdentifier, false)
+        }
+      }
+    }, 5000) // Refresh every 5 seconds
+    
+    return () => {
+      clearInterval(balanceInterval)
+    }
+  }, [activeTab, isConnected, address, tokenData?.content_id, tokenData?.token_id, tokenData?.asa_id, tokenData?.creator, amount])
 
   // Refresh data periodically
   useEffect(() => {
@@ -502,11 +599,20 @@ const TradingMarketplace: React.FC = () => {
         setTradeEstimate(estimate)
       } catch (error: any) {
         // Only log unexpected errors (not "no tokens" errors)
-        if (!error?.message?.includes('No tokens in circulation') && 
-            !error?.message?.includes('no tokens')) {
+        const errorMessage = error?.message || String(error)
+        if (!errorMessage.includes('No tokens in circulation') && 
+            !errorMessage.includes('no tokens') &&
+            !errorMessage.includes('429') && // Don't log rate limit errors as they're handled
+            !errorMessage.includes('rate limit')) {
           console.error('Error estimating trade:', error)
         }
-        setTradeEstimate(null)
+        // Don't set estimate to null on rate limit - keep previous estimate
+        if (errorMessage.includes('429') || errorMessage.includes('rate limit')) {
+          // Keep previous estimate on rate limit
+          console.warn('⚠️ Rate limit during estimate, keeping previous estimate')
+        } else {
+          setTradeEstimate(null)
+        }
       } finally {
         setEstimating(false)
       }
@@ -550,6 +656,7 @@ const TradingMarketplace: React.FC = () => {
     // Use content_id (token_id) for Aptos tokens, or asa_id for legacy Algorand tokens
     // Priority: content_id > token_id > metadata_address > asa_id
     // Note: content_id is what the contract uses, so it's the most reliable identifier
+    // IMPORTANT: For Aptos tokens, ALWAYS use content_id for contract calls, not token_id (which is metadata address)
     const tokenIdentifier = tokenData.content_id || tokenData.token_id || tokenData.metadata_address || tokenData.asa_id
     if (!tokenIdentifier) {
       console.error('❌ Token identifier not found in tokenData:', tokenData)
@@ -558,7 +665,11 @@ const TradingMarketplace: React.FC = () => {
       return
     }
     
+    // For contract calls, ALWAYS prefer content_id (this is what the contract expects)
+    // token_id is the metadata address (numeric) and won't work for contract calls
+    const contractTokenId = tokenData.content_id || tokenIdentifier
     console.log(`[handleTrade] Using token identifier: ${tokenIdentifier} (content_id: ${tokenData.content_id}, token_id: ${tokenData.token_id}, asa_id: ${tokenData.asa_id})`)
+    console.log(`[handleTrade] Using contract token ID: ${contractTokenId} for contract calls`)
     
     const estimate = activeTab === 'buy'
       ? await TradingService.estimateBuy(tokenIdentifier, tradeAmount)
@@ -676,76 +787,66 @@ const TradingMarketplace: React.FC = () => {
       }
     }
 
-    // Cache for supply values to avoid duplicate API calls (rate limit protection)
+    // Use stored bonding curve state from backend (no API calls needed!)
+    // The backend maintains this state in the database and updates it with each trade
     let cachedSupply: { current: number; total: number; reserve: number } | null = null
 
     // Check balances (including minimum balance requirement)
     if (activeTab === 'buy') {
       
-      // Check available supply from contract and adjust APT payment if needed
-      // THIS CHECK IS CRITICAL - must block transaction if supply is insufficient
-      if (tokenData?.creator) {
+      // Use stored bonding curve state from tokenData (fetched from backend)
+      // This avoids unnecessary contract API calls and rate limits
+      if (tokenData?.bonding_curve_state) {
         try {
-          // Get tokenId (content_id) from tokenData
-          const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
-          if (!tokenId) {
-            throw new Error('No tokenId found in tokenData')
+          const bondingState = typeof tokenData.bonding_curve_state === 'string' 
+            ? JSON.parse(tokenData.bonding_curve_state) 
+            : tokenData.bonding_curve_state
+          
+          // Initialize from stored state
+          const storedCurrentSupply = bondingState.token_supply || 0
+          const storedAptReserve = bondingState.algo_reserve || 0
+          const storedTotalSupply = tokenData.total_supply || 1000000 // Default total supply
+          
+          // Cache values for later use
+          cachedSupply = { current: storedCurrentSupply, total: storedTotalSupply, reserve: storedAptReserve }
+          
+          console.log(`[Supply Check] Using stored state - Current: ${storedCurrentSupply}, Total: ${storedTotalSupply}, Reserve: ${storedAptReserve} APT`)
+          
+          // NO CONTRACT CALLS - Use stored state only for instant trades
+          // Contract verification happens AFTER trade succeeds (async, doesn't block)
+          
+          // Use cached supply values (from stored state or contract verification)
+          // Access directly from cachedSupply to avoid redeclaration issues
+          
+          // Handle new tokens (total supply might be 0 in stored state)
+          // Use default total supply if stored state shows 0 (token might be new)
+          if (cachedSupply.total === 0) {
+            // New token - use default total supply (1M tokens)
+            cachedSupply.total = 1000000
+            console.log(`[Supply Check] New token detected (supply=0), using default total supply: ${cachedSupply.total}`)
           }
           
-          // Use MODULE_ADDRESS for contract queries (contract is deployed there)
-          // The service functions will automatically try new contract first, then fallback to old contract
-          const creatorAddress = tokenData.creator || '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6'
-          const currentSupply = await getCurrentSupply(creatorAddress, tokenId)
-          const totalSupply = await getTotalSupply(creatorAddress, tokenId)
-          
-          // Try to get APT reserve, but if it fails (e.g., 400 error), default to 0
-          // This is fine for first buy when reserve is 0 anyway
-          let aptReserve = 0
-          try {
-            aptReserve = await getAptReserve(creatorAddress, tokenId)
-          } catch (reserveError) {
-            console.warn('⚠️ Could not fetch APT reserve (this is OK for first buy):', reserveError)
-            // Default to 0 for first buy - this is expected when no tokens have been bought yet
-            aptReserve = 0
-          }
-          
-          // Cache values for later use to avoid duplicate API calls
-          cachedSupply = { current: currentSupply, total: totalSupply, reserve: aptReserve }
-          
-          console.log(`[Supply Check] Current: ${currentSupply}, Total: ${totalSupply}, Reserve: ${aptReserve}`)
-          
-          // CRITICAL: Verify the contract state matches our expectations
-          if (totalSupply === 0) {
-            setTradeError(
-              `Token not properly initialized! ` +
-              `Total supply is 0. The token may not have been created correctly. ` +
-              `Please contact support or try creating a new token.`
-            )
-            setIsProcessing(false)
-            return
-          }
-          
-          if (currentSupply > totalSupply) {
+          if (cachedSupply.current > cachedSupply.total) {
             setTradeError(
               `Invalid contract state! ` +
-              `Current supply (${currentSupply}) exceeds total supply (${totalSupply}). ` +
+              `Current supply (${cachedSupply.current}) exceeds total supply (${cachedSupply.total}). ` +
               `This should not happen. Please contact support.`
             )
             setIsProcessing(false)
             return
           }
           
-          if (currentSupply >= totalSupply) {
+          if (cachedSupply.current >= cachedSupply.total) {
             setTradeError(
               `All tokens have been minted! ` +
-              `Current supply: ${currentSupply.toFixed(2)} / ${totalSupply.toFixed(2)}. ` +
+              `Current supply: ${cachedSupply.current.toFixed(2)} / ${cachedSupply.total.toFixed(2)}. ` +
               `You can only sell existing tokens, not buy new ones.`
             )
             setIsProcessing(false)
             return
           }
           
-          const availableSupply = totalSupply - currentSupply
+          const availableSupply = cachedSupply.total - cachedSupply.current
           
           // Get APT payment from estimate (in APT, will convert to octas for contract)
           const aptPayment = estimate.algo_cost
@@ -766,19 +867,19 @@ const TradingMarketplace: React.FC = () => {
           const basePriceOctas = 1000 // 0.00001 APT per token (1000 octas)
           let estimatedTokensFromContract: number
           
-          if (currentSupply === 0) {
+          if (cachedSupply.current === 0) {
             // First buy: use base price (contract uses integer division)
             estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
           } else {
             // Subsequent buys: price = reserve / supply
             // Use cached reserve value to avoid duplicate API call
-            const aptReserveOctas = Math.round(aptReserve * 100000000)
-            if (aptReserveOctas === 0 || currentSupply === 0) {
+            const aptReserveOctas = Math.round(cachedSupply.reserve * 100000000)
+            if (aptReserveOctas === 0 || cachedSupply.current === 0) {
               // Fallback to base price if reserve is 0
               estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
             } else {
               // Contract uses integer division: tokens = apt_payment / (old_reserve / old_supply)
-              const currentPriceOctas = Math.floor(aptReserveOctas / currentSupply)
+              const currentPriceOctas = Math.floor(aptReserveOctas / cachedSupply.current)
               if (currentPriceOctas === 0) {
                 // Prevent division by zero
                 estimatedTokensFromContract = Math.floor(aptPaymentOctas / basePriceOctas)
@@ -796,13 +897,13 @@ const TradingMarketplace: React.FC = () => {
           if (estimatedTokensFromContract > availableSupply) {
             // Calculate maximum APT payment for available supply
             let maxAptForAvailableTokens: number
-            if (currentSupply === 0) {
+            if (cachedSupply.current === 0) {
               maxAptForAvailableTokens = (availableSupply * basePriceOctas) / 100000000
             } else {
               // Use cached reserve value to avoid duplicate API call
-              const aptReserveOctas = Math.round(aptReserve * 100000000)
-              const currentPriceOctas = aptReserveOctas > 0 && currentSupply > 0 
-                ? Math.floor(aptReserveOctas / currentSupply) 
+              const aptReserveOctas = Math.round(cachedSupply.reserve * 100000000)
+              const currentPriceOctas = aptReserveOctas > 0 && cachedSupply.current > 0 
+                ? Math.floor(aptReserveOctas / cachedSupply.current) 
                 : basePriceOctas
               maxAptForAvailableTokens = (availableSupply * currentPriceOctas) / 100000000
             }
@@ -812,7 +913,7 @@ const TradingMarketplace: React.FC = () => {
               `Available: ${availableSupply.toFixed(0)} tokens, ` +
               `but your payment of ${aptPayment.toFixed(6)} APT would mint ~${estimatedTokensFromContract.toFixed(0)} tokens. ` +
               `Maximum you can buy: ${maxAptForAvailableTokens.toFixed(6)} APT (${availableSupply.toFixed(0)} tokens). ` +
-              `Current supply: ${currentSupply.toFixed(0)} / ${totalSupply.toFixed(0)}. ` +
+              `Current supply: ${cachedSupply.current.toFixed(0)} / ${cachedSupply.total.toFixed(0)}. ` +
               `Please reduce your amount to ${availableSupply.toFixed(0)} tokens or less.`
             )
             setIsProcessing(false)
@@ -822,16 +923,16 @@ const TradingMarketplace: React.FC = () => {
           // Additional safety check: ensure new supply won't exceed total
           // Add safety margin to account for rounding differences between frontend and contract
           const safetyMargin = 1 // 1 token buffer
-          const newSupplyAfterTrade = currentSupply + estimatedTokensFromContract
-          const maxAllowedSupply = totalSupply - safetyMargin
+          const newSupplyAfterTrade = cachedSupply.current + estimatedTokensFromContract
+          const maxAllowedSupply = cachedSupply.total - safetyMargin
           
           if (newSupplyAfterTrade > maxAllowedSupply) {
             const maxTokensCanBuy = availableSupply - safetyMargin
             setTradeError(
               `Transaction would exceed total supply! ` +
-              `Current: ${currentSupply.toFixed(0)}, ` +
+              `Current: ${cachedSupply.current.toFixed(0)}, ` +
               `Would mint: ${estimatedTokensFromContract.toFixed(0)}, ` +
-              `Total: ${totalSupply.toFixed(0)}. ` +
+              `Total: ${cachedSupply.total.toFixed(0)}. ` +
               `Maximum you can buy: ${maxTokensCanBuy.toFixed(0)} tokens. ` +
               `Please reduce your amount.`
             )
@@ -843,9 +944,14 @@ const TradingMarketplace: React.FC = () => {
         } catch (error) {
           console.error('❌ Error checking token supply:', error)
           // DO NOT proceed if supply check fails - this is critical
+          const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+          const isRateLimit = errorMessage.includes('429') || errorMessage.includes('rate limit')
+          
           setTradeError(
-            `Failed to verify token supply from contract. ` +
-            `Please refresh and try again. Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+            isRateLimit
+              ? `Rate limit reached. The system is retrying automatically. Please wait a moment and try again.`
+              : `Failed to verify token supply from contract. ` +
+                `Please refresh and try again. Error: ${errorMessage}`
           )
           setIsProcessing(false)
           return
@@ -867,10 +973,47 @@ const TradingMarketplace: React.FC = () => {
         return
       }
     } else {
-      if (tradeAmount > userTokenBalance) {
-        setTradeError(`Insufficient token balance! You want to sell ${tradeAmount} ${tokenData.token_symbol} but only have ${userTokenBalance.toFixed(2)}`)
-        setIsProcessing(false)
-        return
+      // For sell, ALWAYS fetch fresh balance to avoid stale cache issues
+      // Clear ALL cache entries for this token/account combination
+      if (tokenData?.creator && address) {
+        try {
+          // Clear cache for this token/account to ensure fresh data
+          const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
+          // Clear specific cache entries for this token (uses normalized keys)
+          clearSupplyCache(tokenData.creator, tokenId, address)
+          
+          // Small delay to ensure cache is cleared
+          await new Promise(resolve => setTimeout(resolve, 100))
+          
+          // Fetch fresh balance (will bypass cache now)
+          const freshBalance = await getTokenBalance(tokenData.creator, tokenId, address)
+          console.log(`[handleTrade] Fresh balance check: ${freshBalance} tokens (want to sell: ${tradeAmount})`)
+          
+          // Update state immediately
+          setUserTokenBalance(freshBalance)
+          
+          if (tradeAmount > freshBalance) {
+            setTradeError(`Insufficient token balance! You want to sell ${tradeAmount} ${tokenData.token_symbol} but only have ${freshBalance.toFixed(2)}`)
+            setIsProcessing(false)
+            return
+          }
+        } catch (balanceError) {
+          console.error('Error fetching fresh balance for sell:', balanceError)
+          // Fallback to state value if fetch fails, but show warning
+          console.warn('⚠️ Using cached balance value as fallback')
+          if (tradeAmount > userTokenBalance) {
+            setTradeError(`Insufficient token balance! You want to sell ${tradeAmount} ${tokenData.token_symbol} but only have ${userTokenBalance.toFixed(2)}. Please refresh and try again.`)
+            setIsProcessing(false)
+            return
+          }
+        }
+      } else {
+        // Fallback if token data is missing
+        if (tradeAmount > userTokenBalance) {
+          setTradeError(`Insufficient token balance! You want to sell ${tradeAmount} ${tokenData.token_symbol} but only have ${userTokenBalance.toFixed(2)}`)
+          setIsProcessing(false)
+          return
+        }
       }
       
       if (!estimate.algo_received || estimate.algo_received <= 0) {
@@ -897,56 +1040,25 @@ const TradingMarketplace: React.FC = () => {
           return
         }
         
-        // FINAL SUPPLY CHECK - Use cached values if available to avoid rate limits
-        // Only query contract if we don't have cached values (e.g., early check failed due to rate limit)
-        if (tokenData?.creator) {
+        // FINAL SUPPLY CHECK - Use stored state only (NO CONTRACT CALLS for instant trades)
+        if (tokenData?.creator && cachedSupply) {
           try {
-            let currentSupply: number
-            let totalSupply: number
-            let aptReserve: number
-            
-            // Define creatorAddress before the conditional so it's available in both branches
+            // Define creatorAddress before use
             const creatorAddress = tokenData.creator || '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6'
             
-            // Use cached values if available, otherwise query contract
-            if (cachedSupply) {
-              console.log(`[Final Supply Check] Using cached supply values to avoid rate limits`)
-              currentSupply = cachedSupply.current
-              totalSupply = cachedSupply.total
-              aptReserve = cachedSupply.reserve
-            } else {
-              console.log(`[Final Supply Check] Querying contract (no cached values)`)
-              // Get tokenId (content_id) from tokenData
-              const tokenId = tokenData.content_id || tokenData.token_id || String(tokenData.asa_id || '')
-              if (!tokenId) {
-                throw new Error('No tokenId found in tokenData')
-              }
-              
-              // Use MODULE_ADDRESS for contract queries
-              // The service functions will automatically try new contract first, then fallback to old contract
-              currentSupply = await getCurrentSupply(creatorAddress, tokenId)
-              totalSupply = await getTotalSupply(creatorAddress, tokenId)
-              aptReserve = await getAptReserve(creatorAddress, tokenId)
-            }
+            // Use cached values from stored state (instant, no API calls)
+            const currentSupply = cachedSupply.current
+            const totalSupply = cachedSupply.total || 1000000 // Default if 0
+            const aptReserve = cachedSupply.reserve
             
             const availableSupply = totalSupply - currentSupply
             
-            console.log(`[Final Supply Check] ========================================`)
-            console.log(`[Final Supply Check] Creator: ${creatorAddress}`)
+            console.log(`[Final Supply Check] Using stored state (instant)`)
+            console.log(`[Final Supply Check] Creator: ${creatorAddress.slice(0, 10)}...`)
             console.log(`[Final Supply Check] Current Supply: ${currentSupply}`)
             console.log(`[Final Supply Check] Total Supply: ${totalSupply}`)
             console.log(`[Final Supply Check] Available Supply: ${availableSupply}`)
             console.log(`[Final Supply Check] APT Payment: ${algoAmount} APT`)
-            
-            // Check if token was even initialized
-            if (totalSupply === 0) {
-              setTradeError(
-                `Token not properly initialized! ` +
-                `Total supply is 0. Please contact support or recreate the token.`
-              )
-              setIsProcessing(false)
-              return
-            }
             
             if (availableSupply <= 0) {
               setTradeError(
@@ -1074,35 +1186,68 @@ const TradingMarketplace: React.FC = () => {
             txId = buyResult.txId
             finalPrice = estimate.new_price
             
-            // Sync contract trade to backend database
-            try {
-              // Get updated contract state after buy
-              const updatedSupply = await getCurrentSupply(creatorAddress, tokenId)
-              const updatedReserve = await getAptReserve(creatorAddress, tokenId)
-              
-              await TradingService.syncContractTrade(
-                tokenId,
-                'buy',
-                txId,
-                address!,
-                tradeAmount,
-                safeAptPayment,
-                updatedSupply,
-                updatedReserve / 100000000 // Convert octas to APT
-              )
-              console.log('✅ Synced buy trade to backend')
-              
-              // Refresh token balance and premium access after successful buy
-              if (tokenData?.content_id || tokenData?.token_id) {
-                setTimeout(() => {
-                  fetchUserTokenBalance(tokenData.content_id || tokenData.token_id || '')
-                  // Trigger premium content access check refresh
-                  window.dispatchEvent(new CustomEvent('tokenBalanceUpdated'))
-                }, 2000) // Wait 2 seconds for blockchain to update
-              }
-            } catch (syncError) {
+            // Sync contract trade to backend database (ASYNC - doesn't block)
+            // Use stored state to calculate new values instantly, verify from contract later
+            const estimatedNewSupply = cachedSupply.current + safeEstimatedTokens
+            const estimatedNewReserve = cachedSupply.reserve + safeAptPayment
+            
+            // Sync immediately with estimated values (instant)
+            TradingService.syncContractTrade(
+              tokenId,
+              'buy',
+              txId,
+              address!,
+              safeEstimatedTokens, // Use estimated tokens
+              safeAptPayment,
+              estimatedNewSupply, // Estimated from stored state
+              estimatedNewReserve // Estimated from stored state
+            ).then(() => {
+              console.log('✅ Synced buy trade to backend (instant)')
+            }).catch((syncError) => {
               console.warn('⚠️ Failed to sync buy trade to backend (non-critical):', syncError)
-              // Don't fail the transaction if sync fails
+            })
+            
+            // Verify from contract AFTER trade (async, doesn't block)
+            setTimeout(async () => {
+              try {
+                const updatedSupply = await getCurrentSupply(creatorAddress, tokenId)
+                const updatedReserve = await getAptReserve(creatorAddress, tokenId)
+                
+                // Re-sync with actual contract values
+                await TradingService.syncContractTrade(
+                  tokenId,
+                  'buy',
+                  txId,
+                  address!,
+                  safeEstimatedTokens,
+                  safeAptPayment,
+                  updatedSupply,
+                  updatedReserve / 100000000
+                )
+                console.log('✅ Re-synced with actual contract values')
+              } catch (verifyError) {
+                console.warn('⚠️ Contract verification failed (non-critical):', verifyError)
+              }
+            }, 3000) // Verify after 3 seconds (async, doesn't block)
+            
+            // Refresh token balance and premium access after successful buy
+            if (tokenData?.content_id || tokenData?.token_id) {
+              const balanceIdentifier = tokenData.content_id || tokenData.token_id || ''
+              console.log(`[TradingMarketplace] Buy successful! Refreshing balance for: ${balanceIdentifier}`)
+              
+              // Immediately update balance using estimated tokens received (instant UI update)
+              const estimatedBalance = (userTokenBalance || 0) + safeEstimatedTokens
+              console.log(`[TradingMarketplace] Estimated new balance: ${estimatedBalance} tokens (previous: ${userTokenBalance}, received: ${safeEstimatedTokens})`)
+              setUserTokenBalance(estimatedBalance)
+              
+              // Immediately trigger premium content access check (for buy, access should be granted)
+              window.dispatchEvent(new CustomEvent('tokenBalanceUpdated'))
+              
+              // Then fetch fresh balance from contract (async, doesn't block)
+              setTimeout(() => {
+                console.log(`[TradingMarketplace] Fetching verified balance from contract...`)
+                fetchUserTokenBalance(balanceIdentifier, true) // Force refresh
+              }, 2000) // Wait 2 seconds for blockchain to update
             }
         
         // Note: Token transfer is handled by the backend's bonding_curve_buy endpoint
@@ -1122,9 +1267,14 @@ const TradingMarketplace: React.FC = () => {
               }
             }
             
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+            const isRateLimit = errorMessage.includes('429') || errorMessage.includes('rate limit')
+            
             setTradeError(
-              `Failed to verify token supply before transaction. ` +
-              `Please refresh and try again. Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+              isRateLimit
+                ? `Rate limit reached. The system is retrying automatically. Please wait a moment and try again.`
+                : `Failed to verify token supply before transaction. ` +
+                  `Please refresh and try again. Error: ${errorMessage}`
             )
             setIsProcessing(false)
             return
@@ -1165,35 +1315,72 @@ const TradingMarketplace: React.FC = () => {
           txId = sellResult.txId
           finalPrice = estimate.new_price
           
-          // Sync contract trade to backend database
-          try {
-            // Get updated contract state after sell
-            const updatedSupply = await getCurrentSupply(creatorAddress, tokenId)
-            const updatedReserve = await getAptReserve(creatorAddress, tokenId)
-            
-            await TradingService.syncContractTrade(
-              tokenId,
-              'sell',
-              txId,
-              address!,
-              tradeAmount,
-              estimate.algo_received || 0,
-              updatedSupply,
-              updatedReserve / 100000000 // Convert octas to APT
-            )
-            console.log('✅ Synced sell trade to backend')
-            
-            // Refresh token balance and premium access after successful sell
-            if (tokenData?.content_id || tokenData?.token_id) {
-              setTimeout(() => {
-                fetchUserTokenBalance(tokenData.content_id || tokenData.token_id || '')
-                // Trigger premium content access check refresh
-                window.dispatchEvent(new CustomEvent('tokenBalanceUpdated'))
-              }, 2000) // Wait 2 seconds for blockchain to update
+          // Sync contract trade to backend database (ASYNC - doesn't block)
+          // Use stored state to calculate new values instantly, verify from contract later
+          // Get stored state if not already cached
+          if (!cachedSupply && tokenData?.bonding_curve_state) {
+            const bondingState = typeof tokenData.bonding_curve_state === 'string' 
+              ? JSON.parse(tokenData.bonding_curve_state) 
+              : tokenData.bonding_curve_state
+            cachedSupply = {
+              current: bondingState.token_supply || 0,
+              total: tokenData.total_supply || 1000000,
+              reserve: bondingState.algo_reserve || 0
             }
-          } catch (syncError) {
+          }
+          const estimatedNewSupply = Math.max(0, (cachedSupply?.current || 0) - tradeAmount)
+          const estimatedNewReserve = Math.max(0, (cachedSupply?.reserve || 0) - (estimate.algo_received || 0))
+          
+          // Sync immediately with estimated values (instant)
+          TradingService.syncContractTrade(
+            tokenId,
+            'sell',
+            txId,
+            address!,
+            tradeAmount,
+            estimate.algo_received || 0,
+            estimatedNewSupply, // Estimated from stored state
+            estimatedNewReserve // Estimated from stored state
+          ).then(() => {
+            console.log('✅ Synced sell trade to backend (instant)')
+          }).catch((syncError) => {
             console.warn('⚠️ Failed to sync sell trade to backend (non-critical):', syncError)
-            // Don't fail the transaction if sync fails
+          })
+          
+          // Verify from contract AFTER trade (async, doesn't block)
+          setTimeout(async () => {
+            try {
+              const updatedSupply = await getCurrentSupply(creatorAddress, tokenId)
+              const updatedReserve = await getAptReserve(creatorAddress, tokenId)
+              
+              // Re-sync with actual contract values
+              await TradingService.syncContractTrade(
+                tokenId,
+                'sell',
+                txId,
+                address!,
+                tradeAmount,
+                estimate.algo_received || 0,
+                updatedSupply,
+                updatedReserve / 100000000
+              )
+              console.log('✅ Re-synced with actual contract values')
+            } catch (verifyError) {
+              console.warn('⚠️ Contract verification failed (non-critical):', verifyError)
+            }
+          }, 3000) // Verify after 3 seconds (async, doesn't block)
+          
+          // IMMEDIATELY refresh token balance and revoke premium access after successful sell
+          if (tokenData?.content_id || tokenData?.token_id) {
+            // Update balance immediately (using cached DB value from sync)
+            const balanceIdentifier = tokenData.content_id || tokenData.token_id || ''
+            // Immediately trigger premium content access revocation
+            window.dispatchEvent(new CustomEvent('tokenBalanceUpdated'))
+            
+            // Then fetch fresh balance from contract (async, doesn't block)
+            setTimeout(() => {
+              fetchUserTokenBalance(balanceIdentifier, true) // Force refresh
+            }, 1000) // Wait 1 second for blockchain to update
           }
         } catch (contractError: any) {
           // Fallback to backend service if contract call fails
@@ -2002,7 +2189,7 @@ const TradingMarketplace: React.FC = () => {
                       </>
                     ) : (
                       <>
-                        <span className="text-gray-400 text-sm">Available: {userTokenBalance.toFixed(2)} {tokenData?.token_symbol || tokenData?.symbol || 'tokens'}</span>
+                        <span className="text-gray-400 text-sm">Available: {Math.max(0, userTokenBalance).toFixed(2)} {tokenData?.token_symbol || tokenData?.symbol || 'tokens'}</span>
                         <span className="text-gray-400 text-sm">APTOS: {userAlgoBalance.toFixed(2)}</span>
                       </>
                     )}
@@ -2232,3 +2419,5 @@ const TradingMarketplace: React.FC = () => {
 }
 
 export default TradingMarketplace
+
+

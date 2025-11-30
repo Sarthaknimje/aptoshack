@@ -77,3 +77,5 @@ If you see "No configuration file found":
 - Config should be at: `~/.shelby/config.yaml`
 - Verify it exists: `cat ~/.shelby/config.yaml`
 
+
+

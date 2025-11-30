@@ -11,6 +11,141 @@ const OLD_MODULE_ADDRESS = "0xfbc34c56aab6dcbe5aa1c9c47807e8fc80f0e674341b11a5b4
 let transactionInProgress = false
 const transactionQueue: Array<() => Promise<any>> = []
 
+// Cache for supply values to reduce API calls (5 second TTL)
+interface SupplyCacheEntry {
+  value: number
+  timestamp: number
+}
+const supplyCache = new Map<string, SupplyCacheEntry>()
+const CACHE_TTL = 5000 // 5 seconds
+
+/**
+ * Retry fetch with exponential backoff for rate limiting
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  maxRetries: number = 3,
+  baseDelay: number = 1000
+): Promise<Response> {
+  let lastError: Error | null = null
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options)
+      
+      // If 429 (rate limit), wait and retry
+      if (response.status === 429) {
+        const retryAfter = response.headers.get('Retry-After')
+        const delay = retryAfter 
+          ? parseInt(retryAfter) * 1000 
+          : baseDelay * Math.pow(2, attempt)
+        
+        console.warn(`⚠️ Rate limit (429) on attempt ${attempt + 1}/${maxRetries}. Waiting ${delay}ms before retry...`)
+        
+        if (attempt < maxRetries - 1) {
+          await new Promise(resolve => setTimeout(resolve, delay))
+          continue
+        }
+      }
+      
+      // For other errors, throw immediately (except 429 which we handle above)
+      if (!response.ok && response.status !== 429) {
+        return response
+      }
+      
+      return response
+    } catch (error: any) {
+      lastError = error
+      
+      // If it's a network error and we have retries left, wait and retry
+      if (attempt < maxRetries - 1) {
+        const delay = baseDelay * Math.pow(2, attempt)
+        console.warn(`⚠️ Network error on attempt ${attempt + 1}/${maxRetries}. Waiting ${delay}ms before retry...`)
+        await new Promise(resolve => setTimeout(resolve, delay))
+        continue
+      }
+    }
+  }
+  
+  throw lastError || new Error('Failed to fetch after retries')
+}
+
+/**
+ * Get cached supply value or fetch new one
+ */
+function getCachedSupply(key: string): number | null {
+  const entry = supplyCache.get(key)
+  if (entry && Date.now() - entry.timestamp < CACHE_TTL) {
+    return entry.value
+  }
+  return null
+}
+
+/**
+ * Set cached supply value
+ */
+function setCachedSupply(key: string, value: number): void {
+  supplyCache.set(key, {
+    value,
+    timestamp: Date.now()
+  })
+}
+
+/**
+ * Clear cached supply values for a specific token (call after successful trade)
+ * Also clears token balance cache for all accounts (since balances change after trades)
+ * Uses normalized keys to match cache key format
+ */
+export function clearSupplyCache(creatorAddress: string, tokenId: string, accountAddress?: string): void {
+  // Normalize addresses and tokenId to match cache key format
+  const normalizedCreator = creatorAddress.toLowerCase().trim()
+  const normalizedTokenId = tokenId.trim()
+  
+  const keys = [
+    `current_supply_${normalizedCreator}_${normalizedTokenId}`,
+    `total_supply_${normalizedCreator}_${normalizedTokenId}`,
+    `apt_reserve_${normalizedCreator}_${normalizedTokenId}`
+  ]
+  
+  // If account address provided, clear that specific balance cache
+  if (accountAddress) {
+    const normalizedAccount = accountAddress.toLowerCase().trim()
+    keys.push(`token_balance_${normalizedCreator}_${normalizedTokenId}_${normalizedAccount}`)
+  } else {
+    // Clear all token balance caches for this token (since any trade affects all balances)
+    const cacheKeysToDelete: string[] = []
+    const searchPrefix = `token_balance_${normalizedCreator}_${normalizedTokenId}_`
+    supplyCache.forEach((_, key) => {
+      if (key.startsWith(searchPrefix)) {
+        cacheKeysToDelete.push(key)
+      }
+    })
+    cacheKeysToDelete.forEach(key => supplyCache.delete(key))
+  }
+  
+  // Also try non-normalized keys (for backwards compatibility)
+  keys.push(
+    `current_supply_${creatorAddress}_${tokenId}`,
+    `total_supply_${creatorAddress}_${tokenId}`,
+    `apt_reserve_${creatorAddress}_${tokenId}`
+  )
+  if (accountAddress) {
+    keys.push(`token_balance_${creatorAddress}_${tokenId}_${accountAddress}`)
+  }
+  
+  keys.forEach(key => supplyCache.delete(key))
+  console.log(`[Cache] Cleared supply cache for ${tokenId}${accountAddress ? ` (account: ${accountAddress.slice(0, 8)}...)` : ''}`)
+}
+
+/**
+ * Clear all cached supply values
+ */
+export function clearAllSupplyCache(): void {
+  supplyCache.clear()
+  console.log(`[Cache] Cleared all supply cache`)
+}
+
 async function executeWithQueue<T>(fn: () => Promise<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const execute = async () => {
@@ -146,39 +281,10 @@ export async function createASAWithPetra({
       console.log(`  - Total Supply: ${safeTotalSupply}`)
       console.log(`  - Creator: ${sender}`)
 
-      // Check if token already exists before initializing
-      try {
-        const existingSupply = await getCurrentSupply(sender, tokenId)
-        console.log(`ℹ️ Token already exists with supply: ${existingSupply}. Skipping initialization.`)
-        
-        // Token exists, get metadata address and return
-        try {
-          const metadataAddress = await getMetadataAddress(sender, tokenId)
-          console.log(`✅ Token already exists. Metadata address: ${metadataAddress}`)
-          return {
-            txId: '', // No transaction needed
-            assetId: metadataAddress,
-            metadataAddress
-          }
-        } catch (metaError) {
-          // If we can't get metadata address, still return success since token exists
-          console.warn(`⚠️ Could not get metadata address, but token exists. Supply: ${existingSupply}`)
-          return {
-            txId: '',
-            assetId: sender, // Fallback to creator address
-            metadataAddress: sender
-          }
-        }
-      } catch (error: any) {
-        // Token doesn't exist (error about resource not found is expected)
-        if (!error.message?.includes('Failed to borrow global resource') && 
-            !error.message?.includes('Failed to fetch current supply')) {
-          // Some other error occurred, log it but continue
-          console.warn(`⚠️ Could not check if token exists: ${error.message}. Proceeding with initialization...`)
-        } else {
-          console.log(`ℹ️ Token does not exist yet. Proceeding with initialization...`)
-        }
-      }
+      // ALWAYS call the smart contract - don't skip even if token might exist
+      // The contract will handle "already exists" errors properly
+      console.log(`[createASAWithPetra] Proceeding with smart contract initialization...`)
+      console.log(`[createASAWithPetra] This will open Petra wallet for approval.`)
 
       // Build transaction to call initialize function
       // Note: Aptos accepts u64 as string to avoid JavaScript number precision issues
@@ -198,14 +304,38 @@ export async function createASAWithPetra({
       }
 
       console.log(`[createASAWithPetra] Transaction payload:`, JSON.stringify(transaction, null, 2))
+      console.log(`[createASAWithPetra] Calling smart contract: ${MODULE_ADDRESS}::creator_token::initialize`)
+      console.log(`[createASAWithPetra] Waiting for Petra wallet approval...`)
 
       // Sign and submit transaction (using new API format)
-      const response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
-      const txId = response.hash
-
-      console.log(`✅ FA token creation transaction submitted: ${txId}`)
+      // This will open Petra wallet for user to approve
+      let response
+      let txId: string
+      try {
+        console.log(`[createASAWithPetra] Requesting transaction signature from Petra wallet...`)
+        response = await petraWallet.signAndSubmitTransaction({ payload: transaction })
+        if (!response || !response.hash) {
+          throw new Error('Transaction submission failed: No transaction hash returned')
+        }
+        txId = response.hash
+        console.log(`✅ FA token creation transaction submitted: ${txId}`)
+        console.log(`[createASAWithPetra] Transaction is being processed on Aptos blockchain...`)
+      } catch (submitError: any) {
+        console.error('❌ Error submitting transaction to Petra wallet:', submitError)
+        // Check if user rejected the transaction
+        if (submitError?.message?.includes('rejected') || 
+            submitError?.message?.includes('denied') ||
+            submitError?.message?.includes('User rejected') ||
+            submitError?.message?.includes('user rejected') ||
+            submitError?.code === 4001 ||
+            submitError?.code === 'ACTION_REJECTED') {
+          throw new Error('Transaction was rejected. Please approve the transaction in Petra wallet to create the token.')
+        }
+        throw new Error(`Failed to submit transaction: ${submitError?.message || submitError}`)
+      }
 
       // Wait for confirmation
+      console.log(`[createASAWithPetra] Waiting for transaction confirmation...`)
       const txData = await waitForTransaction(txId)
       
               // Extract metadata address
@@ -554,6 +684,7 @@ export async function transferTokensWithContract({
 /**
  * Get token balance for an account
  * Tries new contract first, then falls back to old contract if token doesn't exist
+ * Uses caching and retry logic to handle rate limits
  */
 export async function getTokenBalance(
   creatorAddress: string,
@@ -566,9 +697,21 @@ export async function getTokenBalance(
     .map(b => b.toString(16).padStart(2, '0'))
     .join('')
   
+  // Check cache first (balance is per account, so include accountAddress in key)
+  // Use normalized addresses to ensure cache key consistency
+  const normalizedCreator = creatorAddress.toLowerCase().trim()
+  const normalizedAccount = accountAddress.toLowerCase().trim()
+  const normalizedTokenId = tokenId.trim()
+  const cacheKey = `token_balance_${normalizedCreator}_${normalizedTokenId}_${normalizedAccount}`
+  const cached = getCachedSupply(cacheKey)
+  if (cached !== null) {
+    console.log(`[getTokenBalance] Using cached value: ${cached} for ${normalizedAccount} (key: ${cacheKey})`)
+    return cached
+  }
+  
   // Try new contract first
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -576,35 +719,73 @@ export async function getTokenBalance(
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex, accountAddress]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (response.ok) {
       const data = await response.json()
-      return parseInt(data[0] || '0', 10)
+      const balance = parseInt(data[0] || '0', 10)
+      console.log(`[getTokenBalance] Balance fetched: ${balance} tokens (new contract)`)
+      setCachedSupply(cacheKey, balance)
+      return balance
     }
     
-    // If 400 error and it's a resource not found, try old contract
+    // If 400 error, check the error type
     if (response.status === 400) {
       const errorText = await response.text()
-      if (errorText.includes('Failed to borrow global resource')) {
-        console.warn(`⚠️ Token not found in new contract, trying old contract...`)
+      let errorData: any = {}
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        // Not JSON, use text as-is
+      }
+      
+      // Check for specific error codes
+      const isTokenNotFound = errorText.includes('E_TOKEN_NOT_FOUND') || 
+                             errorText.includes('Failed to borrow global resource') ||
+                             (errorData.get?.vm_error_code === 4016)
+      
+      if (isTokenNotFound) {
+        // Token doesn't exist in new contract - try old contract only if it's a "not found" error
+        console.warn(`⚠️ Token not found in new contract (${errorData.get?.vm_error_code || 'unknown'}), trying old contract...`)
         // Fall through to try old contract
       } else {
-        throw new Error('Failed to fetch token balance')
+        // Other 400 error - don't try old contract, return 0
+        console.error(`❌ Failed to fetch token balance: ${response.status} ${errorText}`)
+        setCachedSupply(cacheKey, 0)
+        return 0 // Return 0 instead of throwing for balance checks
       }
+    } else if (response.status === 429) {
+      // Rate limit - return cached value if available, otherwise return 0
+      console.warn(`⚠️ Rate limit on new contract, skipping old contract to avoid more rate limits`)
+      setCachedSupply(cacheKey, 0)
+      return 0 // Return 0 to avoid more API calls
     } else {
-      throw new Error('Failed to fetch token balance')
+      // Other error - return 0 instead of throwing
+      console.error(`❌ Failed to fetch token balance: ${response.status}`)
+      setCachedSupply(cacheKey, 0)
+      return 0
     }
   } catch (error: any) {
-    // If it's a rate limit or other error, try old contract as fallback
+    // If it's a rate limit, don't try old contract (avoid more rate limits)
     if (error.message?.includes('429') || error.message?.includes('rate limit')) {
-      console.warn(`⚠️ Rate limit hit, trying old contract...`)
+      console.warn(`⚠️ Rate limit hit, skipping old contract to avoid more rate limits`)
+      setCachedSupply(cacheKey, 0)
+      return 0
+    } else if (error.message?.includes('E_TOKEN_NOT_FOUND') || error.message?.includes('4016')) {
+      // Token not found - try old contract
+      console.warn(`⚠️ Token not found error, trying old contract...`)
+    } else {
+      // Other error - return 0 instead of throwing
+      console.error(`❌ Error fetching token balance: ${error.message}`)
+      setCachedSupply(cacheKey, 0)
+      return 0
     }
   }
   
-  // Try old contract as fallback
+  // Try old contract as fallback (only if new contract failed with "not found" error)
+  // BUT: Skip if we got rate limited (to avoid more rate limits)
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -612,15 +793,40 @@ export async function getTokenBalance(
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex, accountAddress]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (!response.ok) {
+      const errorText = await response.text()
+      let errorData: any = {}
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        // Not JSON
+      }
+      
+      // If old contract also says token not found, return 0 (token doesn't exist)
+      if (errorText.includes('E_TOKEN_NOT_FOUND') || errorData.get?.vm_error_code === 4016) {
+        console.warn(`⚠️ Token not found in old contract either. Token may not exist.`)
+        setCachedSupply(cacheKey, 0)
+        return 0
+      }
+      
+      console.error(`❌ Failed to fetch token balance from old contract: ${response.status} ${errorText}`)
       throw new Error('Failed to fetch token balance from old contract')
     }
 
     const data = await response.json()
-    return parseInt(data[0] || '0', 10)
-  } catch (error) {
+    const balance = parseInt(data[0] || '0', 10)
+    console.log(`[getTokenBalance] Balance fetched: ${balance} tokens (old contract)`)
+    setCachedSupply(cacheKey, balance)
+    return balance
+  } catch (error: any) {
+    // If it's a token not found error, return 0 instead of throwing
+    if (error.message?.includes('E_TOKEN_NOT_FOUND') || error.message?.includes('4016')) {
+      console.warn(`⚠️ Token not found in both contracts. Returning 0 balance.`)
+      setCachedSupply(cacheKey, 0)
+      return 0
+    }
     console.error('❌ Error getting token balance from both contracts:', error)
     return 0 // Return 0 instead of throwing for balance (it's OK if it fails)
   }
@@ -629,13 +835,24 @@ export async function getTokenBalance(
 /**
  * Get current supply of a token
  * Tries new contract first, then falls back to old contract if token doesn't exist
+ * Uses caching and retry logic to handle rate limits
  */
 export async function getCurrentSupply(creatorAddress: string, tokenId: string): Promise<number> {
   const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
   
+  // Check cache first (use normalized key)
+  const normalizedCreator = creatorAddress.toLowerCase().trim()
+  const normalizedTokenId = tokenId.trim()
+  const cacheKey = `current_supply_${normalizedCreator}_${normalizedTokenId}`
+  const cached = getCachedSupply(cacheKey)
+  if (cached !== null) {
+    console.log(`[getCurrentSupply] Using cached value: ${cached}`)
+    return cached
+  }
+  
   // Try new contract first
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -643,24 +860,40 @@ export async function getCurrentSupply(creatorAddress: string, tokenId: string):
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (response.ok) {
       const data = await response.json()
       const supply = parseInt(data[0] || '0', 10)
       console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply} (new contract)`)
+      setCachedSupply(cacheKey, supply)
       return supply
     }
     
-    // If 400 error and it's a resource not found, try old contract
+    // If 400 error, check the error type
     if (response.status === 400) {
       const errorText = await response.text()
-      if (errorText.includes('Failed to borrow global resource')) {
+      let errorData: any = {}
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        // Not JSON
+      }
+      
+      const isTokenNotFound = errorText.includes('E_TOKEN_NOT_FOUND') || 
+                             errorText.includes('Failed to borrow global resource') ||
+                             (errorData.get?.vm_error_code === 4016)
+      
+      if (isTokenNotFound) {
         console.warn(`⚠️ Token not found in new contract, trying old contract...`)
         // Fall through to try old contract
       } else {
-        throw new Error(`Failed to fetch current supply: ${response.status}`)
+        throw new Error(`Failed to fetch current supply: ${response.status} ${errorData.get?.message || errorText}`)
       }
+    } else if (response.status === 429) {
+      // Rate limit - wait a bit longer and try old contract
+      console.warn(`⚠️ Rate limit on new contract, trying old contract after delay...`)
+      await new Promise(resolve => setTimeout(resolve, 2000))
     } else {
       throw new Error(`Failed to fetch current supply: ${response.status}`)
     }
@@ -668,12 +901,13 @@ export async function getCurrentSupply(creatorAddress: string, tokenId: string):
     // If it's a rate limit or other error, try old contract as fallback
     if (error.message?.includes('429') || error.message?.includes('rate limit')) {
       console.warn(`⚠️ Rate limit hit, trying old contract...`)
+      await new Promise(resolve => setTimeout(resolve, 2000))
     }
   }
   
   // Try old contract as fallback
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -681,10 +915,24 @@ export async function getCurrentSupply(creatorAddress: string, tokenId: string):
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (!response.ok) {
       const errorText = await response.text()
+      let errorData: any = {}
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        // Not JSON
+      }
+      
+      // If token not found in old contract too, return 0
+      if (errorText.includes('E_TOKEN_NOT_FOUND') || errorData.get?.vm_error_code === 4016) {
+        console.warn(`⚠️ Token not found in old contract either. Returning 0 supply.`)
+        setCachedSupply(cacheKey, 0)
+        return 0
+      }
+      
       console.error(`❌ Failed to fetch current supply from old contract: ${response.status} ${errorText}`)
       throw new Error(`Failed to fetch current supply: ${response.status}`)
     }
@@ -692,8 +940,15 @@ export async function getCurrentSupply(creatorAddress: string, tokenId: string):
     const data = await response.json()
     const supply = parseInt(data[0] || '0', 10)
     console.log(`[getCurrentSupply] Creator: ${creatorAddress}, Supply: ${supply} (old contract)`)
+    setCachedSupply(cacheKey, supply)
     return supply
-  } catch (error) {
+  } catch (error: any) {
+    // If it's a token not found error, return 0 instead of throwing
+    if (error.message?.includes('E_TOKEN_NOT_FOUND') || error.message?.includes('4016')) {
+      console.warn(`⚠️ Token not found in both contracts. Returning 0 current supply.`)
+      setCachedSupply(cacheKey, 0)
+      return 0
+    }
     console.error('❌ Error getting current supply from both contracts:', error)
     throw error
   }
@@ -702,13 +957,24 @@ export async function getCurrentSupply(creatorAddress: string, tokenId: string):
 /**
  * Get total supply of a token
  * Tries new contract first, then falls back to old contract if token doesn't exist
+ * Uses caching and retry logic to handle rate limits
  */
 export async function getTotalSupply(creatorAddress: string, tokenId: string): Promise<number> {
   const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
   
+  // Check cache first (use normalized key)
+  const normalizedCreator = creatorAddress.toLowerCase().trim()
+  const normalizedTokenId = tokenId.trim()
+  const cacheKey = `total_supply_${normalizedCreator}_${normalizedTokenId}`
+  const cached = getCachedSupply(cacheKey)
+  if (cached !== null) {
+    console.log(`[getTotalSupply] Using cached value: ${cached}`)
+    return cached
+  }
+  
   // Try new contract first
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -716,24 +982,40 @@ export async function getTotalSupply(creatorAddress: string, tokenId: string): P
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (response.ok) {
       const data = await response.json()
       const totalSupply = parseInt(data[0] || '0', 10)
       console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply} (new contract)`)
+      setCachedSupply(cacheKey, totalSupply)
       return totalSupply
     }
     
-    // If 400 error and it's a resource not found, try old contract
+    // If 400 error, check the error type
     if (response.status === 400) {
       const errorText = await response.text()
-      if (errorText.includes('Failed to borrow global resource')) {
+      let errorData: any = {}
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        // Not JSON
+      }
+      
+      const isTokenNotFound = errorText.includes('E_TOKEN_NOT_FOUND') || 
+                             errorText.includes('Failed to borrow global resource') ||
+                             (errorData.get?.vm_error_code === 4016)
+      
+      if (isTokenNotFound) {
         console.warn(`⚠️ Token not found in new contract, trying old contract...`)
         // Fall through to try old contract
       } else {
-        throw new Error(`Failed to fetch total supply: ${response.status}`)
+        throw new Error(`Failed to fetch total supply: ${response.status} ${errorData.get?.message || errorText}`)
       }
+    } else if (response.status === 429) {
+      // Rate limit - wait a bit longer and try old contract
+      console.warn(`⚠️ Rate limit on new contract, trying old contract after delay...`)
+      await new Promise(resolve => setTimeout(resolve, 2000))
     } else {
       throw new Error(`Failed to fetch total supply: ${response.status}`)
     }
@@ -741,12 +1023,13 @@ export async function getTotalSupply(creatorAddress: string, tokenId: string): P
     // If it's a rate limit or other error, try old contract as fallback
     if (error.message?.includes('429') || error.message?.includes('rate limit')) {
       console.warn(`⚠️ Rate limit hit, trying old contract...`)
+      await new Promise(resolve => setTimeout(resolve, 2000))
     }
   }
   
   // Try old contract as fallback
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -754,10 +1037,24 @@ export async function getTotalSupply(creatorAddress: string, tokenId: string): P
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (!response.ok) {
       const errorText = await response.text()
+      let errorData: any = {}
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        // Not JSON
+      }
+      
+      // If token not found in old contract too, return 0
+      if (errorText.includes('E_TOKEN_NOT_FOUND') || errorData.get?.vm_error_code === 4016) {
+        console.warn(`⚠️ Token not found in old contract either. Returning 0 total supply.`)
+        setCachedSupply(cacheKey, 0)
+        return 0
+      }
+      
       console.error(`❌ Failed to fetch total supply from old contract: ${response.status} ${errorText}`)
       throw new Error(`Failed to fetch total supply: ${response.status}`)
     }
@@ -765,8 +1062,15 @@ export async function getTotalSupply(creatorAddress: string, tokenId: string): P
     const data = await response.json()
     const totalSupply = parseInt(data[0] || '0', 10)
     console.log(`[getTotalSupply] Creator: ${creatorAddress}, Total Supply: ${totalSupply} (old contract)`)
+    setCachedSupply(cacheKey, totalSupply)
     return totalSupply
-  } catch (error) {
+  } catch (error: any) {
+    // If it's a token not found error, return 0 instead of throwing
+    if (error.message?.includes('E_TOKEN_NOT_FOUND') || error.message?.includes('4016')) {
+      console.warn(`⚠️ Token not found in both contracts. Returning 0 total supply.`)
+      setCachedSupply(cacheKey, 0)
+      return 0
+    }
     console.error('❌ Error getting total supply from both contracts:', error)
     throw error
   }
@@ -775,13 +1079,24 @@ export async function getTotalSupply(creatorAddress: string, tokenId: string): P
 /**
  * Get APT reserve for a token
  * Tries new contract first, then falls back to old contract if token doesn't exist
+ * Uses caching and retry logic to handle rate limits
  */
 export async function getAptReserve(creatorAddress: string, tokenId: string): Promise<number> {
   const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
   
+  // Check cache first (use normalized key)
+  const normalizedCreator = creatorAddress.toLowerCase().trim()
+  const normalizedTokenId = tokenId.trim()
+  const cacheKey = `apt_reserve_${normalizedCreator}_${normalizedTokenId}`
+  const cached = getCachedSupply(cacheKey)
+  if (cached !== null) {
+    console.log(`[getAptReserve] Using cached value: ${cached}`)
+    return cached
+  }
+  
   // Try new contract first
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -789,24 +1104,41 @@ export async function getAptReserve(creatorAddress: string, tokenId: string): Pr
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (response.ok) {
       const data = await response.json()
       // Convert octas to APT (1 APT = 100000000 octas)
       const octas = parseInt(data[0] || '0', 10)
-      return octas / 100000000
+      const aptReserve = octas / 100000000
+      setCachedSupply(cacheKey, aptReserve)
+      return aptReserve
     }
     
-    // If 400 error and it's a resource not found, try old contract
+    // If 400 error, check the error type
     if (response.status === 400) {
       const errorText = await response.text()
-      if (errorText.includes('Failed to borrow global resource')) {
+      let errorData: any = {}
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        // Not JSON
+      }
+      
+      const isTokenNotFound = errorText.includes('E_TOKEN_NOT_FOUND') || 
+                             errorText.includes('Failed to borrow global resource') ||
+                             (errorData.get?.vm_error_code === 4016)
+      
+      if (isTokenNotFound) {
         console.warn(`⚠️ Token not found in new contract, trying old contract...`)
         // Fall through to try old contract
       } else {
-        throw new Error('Failed to fetch APT reserve')
+        throw new Error(`Failed to fetch APT reserve: ${errorData.get?.message || errorText}`)
       }
+    } else if (response.status === 429) {
+      // Rate limit - wait a bit longer and try old contract
+      console.warn(`⚠️ Rate limit on new contract, trying old contract after delay...`)
+      await new Promise(resolve => setTimeout(resolve, 2000))
     } else {
       throw new Error('Failed to fetch APT reserve')
     }
@@ -814,12 +1146,13 @@ export async function getAptReserve(creatorAddress: string, tokenId: string): Pr
     // If it's a rate limit or other error, try old contract as fallback
     if (error.message?.includes('429') || error.message?.includes('rate limit')) {
       console.warn(`⚠️ Rate limit hit, trying old contract...`)
+      await new Promise(resolve => setTimeout(resolve, 2000))
     }
   }
   
   // Try old contract as fallback
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -827,16 +1160,34 @@ export async function getAptReserve(creatorAddress: string, tokenId: string): Pr
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (!response.ok) {
+      const errorText = await response.text()
+      let errorData: any = {}
+      try {
+        errorData = JSON.parse(errorText)
+      } catch {
+        // Not JSON
+      }
+      
+      // If token not found in old contract too, return 0
+      if (errorText.includes('E_TOKEN_NOT_FOUND') || errorData.get?.vm_error_code === 4016) {
+        console.warn(`⚠️ Token not found in old contract either. Returning 0 reserve.`)
+        setCachedSupply(cacheKey, 0)
+        return 0
+      }
+      
+      console.error(`❌ Failed to fetch APT reserve from old contract: ${response.status} ${errorText}`)
       throw new Error('Failed to fetch APT reserve from old contract')
     }
 
     const data = await response.json()
     // Convert octas to APT (1 APT = 100000000 octas)
     const octas = parseInt(data[0] || '0', 10)
-    return octas / 100000000
+    const aptReserve = octas / 100000000
+    setCachedSupply(cacheKey, aptReserve)
+    return aptReserve
   } catch (error) {
     console.error('❌ Error getting APT reserve from both contracts:', error)
     return 0 // Return 0 instead of throwing for reserve (it's OK if it fails)
@@ -931,13 +1282,14 @@ export async function placePredictionBet({
 
 /**
  * Get metadata address for a token
+ * Uses retry logic to handle rate limits
  */
 export async function getMetadataAddress(creatorAddress: string, tokenId: string): Promise<string> {
   const tokenIdHex = '0x' + Array.from(new TextEncoder().encode(tokenId)).map(b => b.toString(16).padStart(2, '0')).join('')
   
   // Try new contract first
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -945,7 +1297,7 @@ export async function getMetadataAddress(creatorAddress: string, tokenId: string
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (response.ok) {
       const data = await response.json()
@@ -968,6 +1320,10 @@ export async function getMetadataAddress(creatorAddress: string, tokenId: string
       } else {
         throw new Error(`Failed to fetch metadata address: ${response.status}`)
       }
+    } else if (response.status === 429) {
+      // Rate limit - wait a bit longer and try old contract
+      console.warn(`⚠️ Rate limit on new contract, trying old contract after delay...`)
+      await new Promise(resolve => setTimeout(resolve, 2000))
     } else {
       throw new Error(`Failed to fetch metadata address: ${response.status}`)
     }
@@ -975,12 +1331,13 @@ export async function getMetadataAddress(creatorAddress: string, tokenId: string
     // If it's a rate limit or other error, try old contract as fallback
     if (error.message?.includes('429') || error.message?.includes('rate limit')) {
       console.warn(`⚠️ Rate limit hit, trying old contract...`)
+      await new Promise(resolve => setTimeout(resolve, 2000))
     }
   }
   
   // Try old contract as fallback
   try {
-    const response = await fetch(`${APTOS_NODE_URL}/v1/view`, {
+    const response = await fetchWithRetry(`${APTOS_NODE_URL}/v1/view`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -988,7 +1345,7 @@ export async function getMetadataAddress(creatorAddress: string, tokenId: string
         type_arguments: [],
         arguments: [creatorAddress, tokenIdHex]
       })
-    })
+    }, 3, 1000) // 3 retries with 1s base delay
 
     if (!response.ok) {
       throw new Error(`Failed to fetch metadata address from old contract: ${response.status}`)

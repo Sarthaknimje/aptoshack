@@ -244,8 +244,26 @@ const MultiPlatformTokenization: React.FC = () => {
     premiumContent?: File,
     premiumContentType?: string
   ) => {
-    if (!scrapedContent || !address || !petraWallet) return
+    // Validate required data before starting
+    if (!scrapedContent) {
+      setError('No content found. Please scrape content first.')
+      return
+    }
+    
+    if (!address) {
+      setError('Wallet not connected. Please connect your Petra wallet first.')
+      return
+    }
+    
+    if (!petraWallet) {
+      setError('Petra wallet not available. Please ensure Petra wallet is installed and connected.')
+      return
+    }
 
+    console.log(`[executeTokenization] Starting tokenization process...`)
+    console.log(`[executeTokenization] Wallet connected: ${address}`)
+    console.log(`[executeTokenization] Petra wallet available: ${!!petraWallet}`)
+    
     setTokenizing(true)
     setError(null)
 
@@ -346,31 +364,98 @@ const MultiPlatformTokenization: React.FC = () => {
       }
       
       console.log(`[Tokenization] Using tokenId (content_id): ${tokenId} for platform: ${selectedPlatform}`)
+      console.log(`[Tokenization] Calling smart contract to create token via Petra wallet...`)
+      console.log(`[Tokenization] Token details:`, {
+        name: tokenName,
+        symbol: tokenSymbol.toUpperCase(),
+        tokenId,
+        totalSupply: actualSupply,
+        creator: address
+      })
       
       // Create token using new smart contract via Petra wallet
-      const { txId, assetId } = await createASAWithPetra({
+      // This will open Petra wallet for user to approve the transaction
+      console.log(`[Tokenization] ========================================`)
+      console.log(`[Tokenization] CALLING SMART CONTRACT NOW`)
+      console.log(`[Tokenization] ========================================`)
+      console.log(`[Tokenization] Opening Petra wallet for transaction approval...`)
+      console.log(`[Tokenization] Parameters:`, {
         sender: address,
-        petraWallet: petraWallet,
-        tokenId: tokenId, // content_id (video_id, tweet_id, LinkedIn post ID, etc.) - used as unique identifier
+        tokenId,
         assetName: tokenName,
         unitName: tokenSymbol.toUpperCase(),
-        totalSupply: actualSupply, // Pass the calculated total supply
-        iconUri: scrapedContent.thumbnailUrl || scrapedContent.url,
-        projectUri: scrapedContent.url
+        totalSupply: actualSupply
       })
+      
+      // Double-check petraWallet is available before calling
+      if (!petraWallet) {
+        throw new Error('Petra wallet is not available. Please refresh the page and reconnect your wallet.')
+      }
+      
+      console.log(`[Tokenization] Petra wallet object:`, petraWallet)
+      console.log(`[Tokenization] About to call createASAWithPetra...`)
+      
+      // CRITICAL: Call smart contract FIRST - this MUST open Petra wallet
+      // Do NOT save to backend until contract call succeeds
+      console.log(`[Tokenization] ⚠️ CRITICAL: About to call smart contract via Petra wallet...`)
+      console.log(`[Tokenization] ⚠️ Petra wallet MUST open and user MUST approve for token to be created!`)
+      
+      let txId: string
+      let assetId: string
+      
+      try {
+        const result = await createASAWithPetra({
+          sender: address,
+          petraWallet: petraWallet,
+          tokenId: tokenId, // content_id (video_id, tweet_id, LinkedIn post ID, etc.) - used as unique identifier
+          assetName: tokenName,
+          unitName: tokenSymbol.toUpperCase(),
+          totalSupply: actualSupply, // Pass the calculated total supply
+          iconUri: scrapedContent.thumbnailUrl || scrapedContent.url,
+          projectUri: scrapedContent.url
+        })
+        
+        txId = result.txId
+        assetId = result.assetId
+        
+        // Validate that we got a real transaction ID (not empty)
+        if (!txId || txId.trim() === '') {
+          throw new Error('Transaction was not submitted. Petra wallet may have been rejected or closed.')
+        }
+        
+        console.log(`[Tokenization] ✅ Smart contract call successful! Transaction ID: ${txId}`)
+        console.log(`[Tokenization] ✅ Token created on blockchain with asset ID: ${assetId}`)
+        console.log(`[Tokenization] ========================================`)
+      } catch (contractError: any) {
+        console.error(`[Tokenization] ❌ Smart contract call FAILED:`, contractError)
+        
+        // Check if user rejected the transaction
+        if (contractError?.message?.includes('rejected') || 
+            contractError?.message?.includes('denied') ||
+            contractError?.message?.includes('User rejected') ||
+            contractError?.code === 4001) {
+          throw new Error('Token creation was cancelled. You must approve the transaction in Petra wallet to create the token.')
+        }
+        
+        // Re-throw the error - do NOT create token in backend if contract call fails
+        throw new Error(`Failed to create token on blockchain: ${contractError?.message || 'Unknown error'}. Token was NOT created.`)
+      }
 
-      if (!assetId && assetId !== 0) {
-        throw new Error('Failed to get asset ID from transaction. Please try again.')
+      // Validate asset ID
+      if (!assetId || (assetId !== '0' && assetId.trim() === '')) {
+        throw new Error('Failed to get asset ID from transaction. Token was NOT created on blockchain.')
       }
 
       // Convert BigInt to string/number for JSON serialization
       const assetIdStr = typeof assetId === 'bigint' ? assetId.toString() : String(assetId)
       const assetIdNum = typeof assetId === 'bigint' ? Number(assetId) : Number(assetId)
 
-      console.log(`✅ Token created: ${tokenName} (${tokenSymbol}) - Asset ID: ${assetIdStr}, TX: ${txId}`)
+      console.log(`✅ Token created on blockchain: ${tokenName} (${tokenSymbol}) - Asset ID: ${assetIdStr}, TX: ${txId}`)
       console.log(`✅ TokenId (content_id) used in contract: ${tokenId}`)
+      console.log(`[Tokenization] Now saving token to backend database...`)
 
-      // Save to backend - ensure content_id matches tokenId used in contract
+      // CRITICAL: Only save to backend AFTER successful blockchain transaction
+      // Backend will verify the transaction exists on-chain
       const response = await fetch('http://localhost:5001/create-creator-token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

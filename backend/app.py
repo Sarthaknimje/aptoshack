@@ -3543,7 +3543,7 @@ def bonding_curve_estimate():
                         current_reserve = estimated_reserve
                     logger.info(f"✅ Re-estimated: Supply={current_supply}, Reserve={current_reserve}")
             
-            # Final check: if still no supply, return error
+            # Final check: if still no supply, try one more time with retry logic
             # For Aptos tokens, try one more time to fetch from contract using content_id
             if current_supply <= 0 or current_reserve <= 0:
                 # Try to get creator and content_id for Aptos tokens
@@ -3558,25 +3558,46 @@ def bonding_curve_estimate():
                     if creator_row and creator_row[0]:
                         creator_address = creator_row[0]
                         content_id = creator_row[1] or token_identifier
-                        # Last attempt: fetch from contract using content_id
-                        contract_supply, contract_reserve = fetch_aptos_contract_state(creator_address, content_id)
-                        if contract_supply is not None and contract_reserve is not None and contract_supply > 0:
-                            current_supply = contract_supply
-                            current_reserve = contract_reserve
-                            logger.info(f"✅ Last-chance contract fetch succeeded: supply={current_supply}, reserve={contract_reserve}")
-                        else:
-                            logger.warning(f"⚠️ Sell estimate failed: Supply={current_supply}, Reserve={current_reserve}, Trades={trade_count}, Contract fetch failed")
+                        # Last attempt: fetch from contract using content_id with retry
+                        import time
+                        for retry in range(3):
+                            contract_supply, contract_reserve = fetch_aptos_contract_state(creator_address, content_id)
+                            if contract_supply is not None and contract_reserve is not None and contract_supply > 0:
+                                current_supply = contract_supply
+                                current_reserve = contract_reserve
+                                logger.info(f"✅ Last-chance contract fetch succeeded (attempt {retry+1}): supply={current_supply}, reserve={contract_reserve}")
+                                break
+                            elif retry < 2:
+                                logger.warning(f"⚠️ Contract fetch attempt {retry+1} failed, retrying...")
+                                time.sleep(1)  # Wait 1 second before retry
+                        
+                        # If still no supply after retries, but we have trades, use minimum viable values
+                        if current_supply <= 0 and trade_count > 0:
+                            logger.warning(f"⚠️ Contract fetch failed but {trade_count} trades exist. Using fallback estimation...")
+                            # Use a minimum viable price based on base price
+                            base_price_per_token = 0.00001  # 1000 octas = 0.00001 APT
+                            # Estimate supply from trades if available
+                            if estimated_supply > 0:
+                                current_supply = estimated_supply
+                                current_reserve = estimated_supply * base_price_per_token * 1.1  # Add 10% buffer
+                            else:
+                                # Use a conservative estimate: assume at least some tokens exist
+                                current_supply = max(token_amount, 100)  # At least the amount being sold
+                                current_reserve = current_supply * base_price_per_token
+                            logger.info(f"✅ Using fallback estimation: supply={current_supply}, reserve={current_reserve}")
+                        elif current_supply <= 0:
+                            logger.warning(f"⚠️ Sell estimate failed: Supply={current_supply}, Reserve={current_reserve}, Trades={trade_count}, Contract fetch failed after retries")
                             conn.close()
                             return jsonify({
                                 "success": False,
-                                "error": "No tokens in circulation to sell. The token may need to be initialized or the contract state may be unavailable."
+                                "error": "No tokens in circulation to sell. The token may need to be initialized or the contract state may be unavailable. Please try refreshing the page."
                             }), 400
                     else:
                         logger.warning(f"⚠️ Sell estimate failed: Supply={current_supply}, Reserve={current_reserve}, Trades={trade_count}, Creator not found")
                         conn.close()
                         return jsonify({
                             "success": False,
-                            "error": "No tokens in circulation to sell"
+                            "error": "No tokens in circulation to sell. Token data not found."
                         }), 400
                 else:
                     # Legacy Algorand token - return error
@@ -3709,6 +3730,46 @@ def sync_contract_trade():
             VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (str(trade_asa_id), trader_address, trade_type, token_amount, new_price, transaction_id, apt_amount))
         
+        # Create user_balances table if it doesn't exist (cache for instant access)
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_balances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_address TEXT NOT NULL,
+                token_id TEXT NOT NULL,
+                creator_address TEXT NOT NULL,
+                balance REAL NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_address, token_id, creator_address)
+            )
+        ''')
+        
+        # Update or insert user balance cache (instant update after trade)
+        # For buy: balance increases, for sell: balance decreases
+        # Get current cached balance
+        cursor.execute('''
+            SELECT balance FROM user_balances 
+            WHERE user_address = ? AND token_id = ? AND creator_address = ?
+        ''', (trader_address, str(token_identifier), token_id_db or ''))
+        
+        cached_balance_row = cursor.fetchone()
+        current_cached_balance = cached_balance_row[0] if cached_balance_row else 0
+        
+        # Calculate new balance based on trade type
+        if trade_type == 'buy':
+            new_balance = current_cached_balance + token_amount
+        else:  # sell
+            new_balance = max(0, current_cached_balance - token_amount)
+        
+        # Update or insert cached balance
+        cursor.execute('''
+            INSERT INTO user_balances (user_address, token_id, creator_address, balance, updated_at)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(user_address, token_id, creator_address) 
+            DO UPDATE SET balance = ?, updated_at = CURRENT_TIMESTAMP
+        ''', (trader_address, str(token_identifier), token_id_db or '', new_balance, new_balance))
+        
+        logger.info(f"💾 Cached user balance: {trader_address[:10]}... = {new_balance} tokens (trade: {trade_type} {token_amount})")
+        
         conn.commit()
         conn.close()
         
@@ -3726,6 +3787,53 @@ def sync_contract_trade():
             conn.close()
         except:
             pass
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/user-balance-cache', methods=['GET'])
+@cross_origin(supports_credentials=True)
+@handle_errors
+def get_user_balance_cache():
+    """
+    Get cached user token balance from database (instant, no API calls)
+    Used for fast UI updates after trades
+    """
+    try:
+        user_address = request.args.get('userAddress')
+        token_id = request.args.get('tokenId')
+        creator_address = request.args.get('creatorAddress')
+        
+        if not all([user_address, token_id, creator_address]):
+            return jsonify({"success": False, "error": "Missing required parameters"}), 400
+        
+        conn = sqlite3.connect('creatorvault.db')
+        cursor = conn.cursor()
+        
+        # Get cached balance
+        cursor.execute('''
+            SELECT balance, updated_at FROM user_balances 
+            WHERE user_address = ? AND token_id = ? AND creator_address = ?
+        ''', (user_address, str(token_id), creator_address))
+        
+        row = cursor.fetchone()
+        conn.close()
+        
+        if row:
+            balance, updated_at = row
+            return jsonify({
+                "success": True,
+                "balance": balance,
+                "updated_at": updated_at,
+                "cached": True
+            })
+        else:
+            # No cache found - return 0
+            return jsonify({
+                "success": True,
+                "balance": 0,
+                "cached": False
+            })
+    except Exception as e:
+        logger.error(f"Error getting cached balance: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/scrape-content', methods=['POST', 'OPTIONS'])
@@ -4011,17 +4119,17 @@ def get_youtube_videos():
                 
                 for row in cursor.fetchall():
                     content_id, content_url, token_id, token_name, token_symbol = row
-                # Extract video ID from content_id or content_url
-                video_id = None
-                if content_id:
-                    video_id = content_id
-                elif content_url:
-                    # Extract video ID from YouTube URL
-                    import re
-                    match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})', content_url)
-                    if match:
-                        video_id = match.group(1)
-                
+                    # Extract video ID from content_id or content_url
+                    video_id = None
+                    if content_id:
+                        video_id = content_id
+                    elif content_url:
+                        # Extract video ID from YouTube URL
+                        import re
+                        match = re.search(r'(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})', content_url)
+                        if match:
+                            video_id = match.group(1)
+                    
                     if video_id:
                         tokenized_videos[video_id] = {
                             'token_id': token_id,
@@ -4033,22 +4141,23 @@ def get_youtube_videos():
                 logger.info(f"No tokenized videos found (database may be empty): {e}")
                 tokenized_videos = {}
             finally:
-                conn.close()
+                if conn:
+                    conn.close()
             
             # Format videos with tokenization status
             videos = []
             for item in videos_response.get('items', []):
-            video_id = item['id']['videoId']
-            video_data = {
-                'id': video_id,
-                'title': item['snippet']['title'],
-                'description': item['snippet']['description'],
-                'thumbnail': item['snippet']['thumbnails']['high']['url'],
-                'publishedAt': item['snippet']['publishedAt'],
-                'url': f"https://www.youtube.com/watch?v={video_id}",
-                'isTokenized': video_id in tokenized_videos,
-                'tokenInfo': tokenized_videos.get(video_id)
-            }
+                video_id = item['id']['videoId']
+                video_data = {
+                    'id': video_id,
+                    'title': item['snippet']['title'],
+                    'description': item['snippet']['description'],
+                    'thumbnail': item['snippet']['thumbnails']['high']['url'],
+                    'publishedAt': item['snippet']['publishedAt'],
+                    'url': f"https://www.youtube.com/watch?v={video_id}",
+                    'isTokenized': video_id in tokenized_videos,
+                    'tokenInfo': tokenized_videos.get(video_id)
+                }
                 videos.append(video_data)
             
             # Cache the videos
@@ -4227,13 +4336,13 @@ def get_youtube_video_info():
             # Use API key for public video data (much higher quota)
             youtube = build('youtube', 'v3', developerKey=YOUTUBE_API_KEY)
             
-        video_response = youtube.videos().list(
-            part='snippet,statistics,contentDetails',
+            video_response = youtube.videos().list(
+                part='snippet,statistics,contentDetails',
                 id=video_id,
                 key=YOUTUBE_API_KEY
-        ).execute()
-        
-        if not video_response.get('items'):
+            ).execute()
+            
+            if not video_response.get('items'):
                 # Try to return cached data even if stale
                 if cache_row:
                     cached_video = json.loads(cached_video_json)
@@ -4268,53 +4377,53 @@ def get_youtube_video_info():
                         "content": cached_video,
                         "verified": is_owned
                     })
-            return jsonify({"success": False, "error": "Video not found or not accessible"}), 404
-        
-        video = video_response['items'][0]
-        video_channel_id = video['snippet']['channelId']
-        
-        # CRITICAL: Verify the video belongs to the connected channel
+                return jsonify({"success": False, "error": "Video not found or not accessible"}), 404
+            
+            video = video_response['items'][0]
+            video_channel_id = video['snippet']['channelId']
+            
+            # CRITICAL: Verify the video belongs to the connected channel
             is_owned = (video_channel_id == connected_channel_id) if connected_channel_id else False
-        
+            
             if not is_owned and connected_channel_id:
-            logger.warning(f"⚠️ User tried to tokenize video from another channel. Video channel: {video_channel_id}, Connected channel: {connected_channel_id}")
-        
-        # Check if already tokenized
-        conn = sqlite3.connect('creatorvault.db')
-        cursor = conn.cursor()
+                logger.warning(f"⚠️ User tried to tokenize video from another channel. Video channel: {video_channel_id}, Connected channel: {connected_channel_id}")
+            
+            # Check if already tokenized
+            conn = sqlite3.connect('creatorvault.db')
+            cursor = conn.cursor()
             # Try token_id first, fallback to asa_id for old schema
             try:
                 cursor.execute('SELECT token_id, token_name, token_symbol FROM tokens WHERE (content_id = ? OR content_url LIKE ?) AND platform = ?', 
                               (video_id, f'%{video_id}%', 'youtube'))
-        existing_token = cursor.fetchone()
+                existing_token = cursor.fetchone()
             except sqlite3.OperationalError:
                 # Old schema uses asa_id
                 cursor.execute('SELECT asa_id, token_name, token_symbol FROM tokens WHERE (content_id = ? OR content_url LIKE ?) AND platform = ?', 
                               (video_id, f'%{video_id}%', 'youtube'))
                 existing_token = cursor.fetchone()
-        
-        video_data = {
-            'id': video_id,
-            'title': video['snippet']['title'],
-            'description': video['snippet']['description'],
-            'thumbnail': video['snippet']['thumbnails']['high']['url'],
-            'publishedAt': video['snippet']['publishedAt'],
-            'viewCount': int(video['statistics'].get('viewCount', 0)),
-            'likeCount': int(video['statistics'].get('likeCount', 0)),
-            'commentCount': int(video['statistics'].get('commentCount', 0)),
-            'channelId': video_channel_id,
-            'channelTitle': video['snippet']['channelTitle'],
-            'url': f"https://www.youtube.com/watch?v={video_id}",
-            'platform': 'youtube',
-            'isTokenized': existing_token is not None,
-            'tokenInfo': {
+            
+            video_data = {
+                'id': video_id,
+                'title': video['snippet']['title'],
+                'description': video['snippet']['description'],
+                'thumbnail': video['snippet']['thumbnails']['high']['url'],
+                'publishedAt': video['snippet']['publishedAt'],
+                'viewCount': int(video['statistics'].get('viewCount', 0)),
+                'likeCount': int(video['statistics'].get('likeCount', 0)),
+                'commentCount': int(video['statistics'].get('commentCount', 0)),
+                'channelId': video_channel_id,
+                'channelTitle': video['snippet']['channelTitle'],
+                'url': f"https://www.youtube.com/watch?v={video_id}",
+                'platform': 'youtube',
+                'isTokenized': existing_token is not None,
+                'tokenInfo': {
                     'token_id': existing_token[0],
-                'token_name': existing_token[1],
-                'token_symbol': existing_token[2]
-            } if existing_token else None,
-            # NEW: Add ownership verification
-            'isOwned': is_owned,
-            'connectedChannelId': connected_channel_id,
+                    'token_name': existing_token[1],
+                    'token_symbol': existing_token[2]
+                } if existing_token else None,
+                # NEW: Add ownership verification
+                'isOwned': is_owned,
+                'connectedChannelId': connected_channel_id,
                 'ownershipMessage': 'You own this video and can tokenize it.' if is_owned else 'This video belongs to another channel. You can only tokenize your own content.',
                 'cached': False
             }
@@ -4329,12 +4438,12 @@ def get_youtube_video_info():
             conn.close()
             
             logger.info(f"✅ Fetched and cached YouTube video info for {video_id}")
-        
-        return jsonify({
-            "success": True,
-            "content": video_data,
-            "verified": is_owned
-        })
+            
+            return jsonify({
+                "success": True,
+                "content": video_data,
+                "verified": is_owned
+            })
             
         except HttpError as http_err:
             # Handle quota exceeded - return cached data if available
@@ -4527,16 +4636,16 @@ def get_predictions():
         
         predictions = []
         try:
-        if status_filter == 'all':
-            cursor.execute('''
-                SELECT prediction_id, creator_address, content_url, platform, metric_type,
-                       target_value, timeframe_hours, end_time, yes_pool, no_pool,
-                       status, outcome, initial_value, final_value, created_at
-                FROM predictions
-                ORDER BY created_at DESC
-            ''')
-        else:
-            cursor.execute('''
+            if status_filter == 'all':
+                cursor.execute('''
+                    SELECT prediction_id, creator_address, content_url, platform, metric_type,
+                           target_value, timeframe_hours, end_time, yes_pool, no_pool,
+                           status, outcome, initial_value, final_value, created_at
+                    FROM predictions
+                    ORDER BY created_at DESC
+                ''')
+            else:
+                cursor.execute('''
                 SELECT prediction_id, creator_address, content_url, platform, metric_type,
                        target_value, timeframe_hours, end_time, yes_pool, no_pool,
                        status, outcome, initial_value, final_value, created_at
@@ -4544,11 +4653,11 @@ def get_predictions():
                 WHERE status = ?
                 ORDER BY created_at DESC
             ''', (status_filter,))
-        
-        rows = cursor.fetchall()
-        
-        for row in rows:
-            predictions.append({
+            
+            rows = cursor.fetchall()
+            
+            for row in rows:
+                predictions.append({
                 "prediction_id": row[0],
                 "creator_address": row[1],
                 "content_url": row[2],
@@ -5503,6 +5612,240 @@ def shelby_metadata():
         
     except Exception as e:
         logger.error(f"Error getting Shelby metadata: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+def verify_token_balance_on_chain(user_address: str, creator_address: str, token_id: str, minimum_balance: int = 1) -> bool:
+    """
+    Verify token balance on Aptos blockchain
+    Returns True if user has sufficient balance, False otherwise
+    """
+    try:
+        import time
+        from datetime import datetime, timedelta
+        
+        # Convert token_id to hex
+        # Handle both string and numeric token IDs
+        if isinstance(token_id, (int, float)):
+            # If it's numeric, convert to string first
+            token_id = str(int(token_id))
+        token_id_str = str(token_id)
+        token_id_bytes = token_id_str.encode('utf-8')
+        token_id_hex = '0x' + ''.join([f'{b:02x}' for b in token_id_bytes])
+        
+        logger.info(f"🔍 Verifying balance: token_id={token_id_str[:50]}, token_id_hex={token_id_hex[:50]}...")
+        
+        # Aptos testnet node URL
+        APTOS_NODE_URL = os.getenv('APTOS_NODE_URL', 'https://fullnode.testnet.aptoslabs.com')
+        MODULE_ADDRESS = os.getenv('MODULE_ADDRESS', '0x033349213be67033ffd596fa85b69ab5c3ff82a508bb446002c8419d549d12c6')
+        OLD_MODULE_ADDRESS = os.getenv('OLD_MODULE_ADDRESS', '0xfbc34c56aab6dcbe5aa1c9c47807e8fc80f0e674341b11a5b4b6a742764cd0e2')
+        
+        # Try new contract first
+        for module_address in [MODULE_ADDRESS, OLD_MODULE_ADDRESS]:
+            try:
+                response = requests.post(
+                    f"{APTOS_NODE_URL}/v1/view",
+                    json={
+                        "function": f"{module_address}::creator_token::get_balance",
+                        "type_arguments": [],
+                        "arguments": [creator_address, token_id_hex, user_address]
+                    },
+                    timeout=10
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    balance = int(data[0] or '0', 10)
+                    logger.info(f"Token balance verified: {balance} tokens for {user_address} (contract: {module_address[:10]}...)")
+                    return balance >= minimum_balance
+                elif response.status_code == 429:
+                    # Rate limit - wait and retry
+                    logger.warning(f"Rate limit (429) when checking balance with {module_address[:10]}..., waiting...")
+                    time.sleep(2)
+                    continue
+                elif response.status_code == 400:
+                    # Check if it's a token not found error
+                    try:
+                        error_data = response.json()
+                        if error_data.get('vm_error_code') == 4016 or 'E_TOKEN_NOT_FOUND' in str(error_data):
+                            logger.warning(f"Token not found in {module_address[:10]}... (E_TOKEN_NOT_FOUND)")
+                            # Try next contract
+                            continue
+                    except:
+                        pass
+                    # Other 400 error - log and try next contract
+                    logger.warning(f"400 error when checking balance with {module_address[:10]}...: {response.text[:200]}")
+                    continue
+            except requests.exceptions.Timeout:
+                logger.warning(f"Timeout checking balance with {module_address[:10]}...")
+                continue
+            except Exception as e:
+                logger.warning(f"Error checking balance with {module_address[:10]}...: {e}")
+                continue
+        
+        logger.warning(f"Failed to verify token balance for {user_address} - tried both contracts")
+        return False
+        
+    except Exception as e:
+        logger.error(f"Error verifying token balance: {e}")
+        traceback.print_exc()
+        return False
+
+@app.route('/api/premium/access-token', methods=['POST'])
+@cross_origin(supports_credentials=True)
+def get_premium_access_token():
+    """
+    Generate a time-limited access token for premium content
+    Verifies token balance before issuing token
+    """
+    try:
+        data = request.get_json()
+        user_address = data.get('userAddress')
+        creator_address = data.get('creatorAddress')
+        token_id = data.get('tokenId')
+        blob_url = data.get('blobUrl', '')  # Optional for access checks
+        minimum_balance = data.get('minimumBalance', 1)
+        
+        # blob_url is optional for access checks (can be empty string or placeholder)
+        if not all([user_address, creator_address, token_id]):
+            return jsonify({"success": False, "error": "Missing required parameters"}), 400
+        
+        # Log the request for debugging
+        logger.info(f"🔐 Premium access check: user={user_address[:10] if user_address else 'None'}..., creator={creator_address[:10] if creator_address else 'None'}..., token_id={str(token_id)[:20] if token_id else 'None'}...")
+        
+        # Verify token balance on-chain
+        has_access = verify_token_balance_on_chain(user_address, creator_address, token_id, minimum_balance)
+        
+        logger.info(f"🔐 Premium access result: {has_access} (minimum: {minimum_balance})")
+        
+        if not has_access:
+            logger.warning(f"Access denied for {user_address} - insufficient token balance")
+            return jsonify({
+                "success": False,
+                "error": "Insufficient token balance",
+                "hasAccess": False
+            }), 403
+        
+        # Generate time-limited access token (valid for 10 minutes)
+        from datetime import datetime, timedelta
+        expires_at = datetime.now() + timedelta(minutes=10)
+        
+        # Create signed token
+        token_data = {
+            "userAddress": user_address,
+            "creatorAddress": creator_address,
+            "tokenId": token_id,
+            "blobUrl": blob_url,
+            "expiresAt": expires_at.isoformat(),
+            "nonce": secrets.token_urlsafe(16)
+        }
+        
+        # Sign token with secret key
+        token_string = json.dumps(token_data, sort_keys=True)
+        token_signature = hashlib.sha256(
+            (token_string + app.secret_key).encode()
+        ).hexdigest()
+        
+        access_token = base64.urlsafe_b64encode(
+            f"{token_string}:{token_signature}".encode()
+        ).decode()
+        
+        logger.info(f"Access token issued for {user_address} (expires: {expires_at})")
+        
+        return jsonify({
+            "success": True,
+            "accessToken": access_token,
+            "expiresAt": expires_at.isoformat(),
+            "hasAccess": True
+        })
+        
+    except Exception as e:
+        logger.error(f"Error generating access token: {e}")
+        traceback.print_exc()
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route('/api/premium/content', methods=['GET'])
+@cross_origin(supports_credentials=True)
+def get_premium_content():
+    """
+    Serve premium content with access verification
+    Verifies access token and token balance before proxying content from Shelby
+    """
+    try:
+        access_token = request.args.get('token')
+        if not access_token:
+            return jsonify({"success": False, "error": "Access token required"}), 401
+        
+        # Decode and verify token
+        try:
+            token_string = base64.urlsafe_b64decode(access_token.encode()).decode()
+            token_data_str, token_signature = token_string.rsplit(':', 1)
+            
+            # Verify signature
+            expected_signature = hashlib.sha256(
+                (token_data_str + app.secret_key).encode()
+            ).hexdigest()
+            
+            if token_signature != expected_signature:
+                logger.warning("Invalid access token signature")
+                return jsonify({"success": False, "error": "Invalid access token"}), 401
+            
+            # Parse token data
+            token_data = json.loads(token_data_str)
+            
+            # Check expiration
+            expires_at = datetime.fromisoformat(token_data['expiresAt'])
+            if datetime.now() > expires_at:
+                logger.warning(f"Access token expired for {token_data.get('userAddress')}")
+                return jsonify({"success": False, "error": "Access token expired"}), 401
+            
+            # Verify token balance again (double-check on every request)
+            has_access = verify_token_balance_on_chain(
+                token_data['userAddress'],
+                token_data['creatorAddress'],
+                token_data['tokenId'],
+                minimum_balance=1
+            )
+            
+            if not has_access:
+                logger.warning(f"Access revoked for {token_data['userAddress']} - balance changed")
+                return jsonify({
+                    "success": False,
+                    "error": "Access revoked - insufficient token balance"
+                }), 403
+            
+            # Fetch content from Shelby and proxy it
+            blob_url = token_data['blobUrl']
+            shelby_url = f"https://api.shelbynet.shelby.xyz/shelby/v1/blobs/{blob_url}"
+            
+            # Stream content from Shelby
+            response = requests.get(shelby_url, stream=True, timeout=60)
+            
+            if response.status_code != 200:
+                logger.error(f"Failed to fetch from Shelby: {response.status_code}")
+                return jsonify({"success": False, "error": "Failed to fetch content"}), 500
+            
+            # Determine content type
+            content_type = response.headers.get('Content-Type', 'application/octet-stream')
+            
+            # Stream response
+            from flask import Response
+            return Response(
+                response.iter_content(chunk_size=8192),
+                mimetype=content_type,
+                headers={
+                    'Content-Disposition': f'inline; filename="premium_content"',
+                    'Cache-Control': 'no-store, no-cache, must-revalidate, max-age=0'
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Error verifying access token: {e}")
+            traceback.print_exc()
+            return jsonify({"success": False, "error": "Invalid access token"}), 401
+        
+    except Exception as e:
+        logger.error(f"Error serving premium content: {e}")
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
 
