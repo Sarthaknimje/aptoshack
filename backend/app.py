@@ -3808,6 +3808,19 @@ def get_user_balance_cache():
         conn = sqlite3.connect('creatorvault.db')
         cursor = conn.cursor()
         
+        # Ensure user_balances table exists
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS user_balances (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_address TEXT NOT NULL,
+                token_id TEXT NOT NULL,
+                creator_address TEXT NOT NULL,
+                balance REAL NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_address, token_id, creator_address)
+            )
+        ''')
+        
         # Get cached balance
         cursor.execute('''
             SELECT balance, updated_at FROM user_balances 
@@ -3834,6 +3847,8 @@ def get_user_balance_cache():
             })
     except Exception as e:
         logger.error(f"Error getting cached balance: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return jsonify({"success": False, "error": str(e)}), 500
 
 @app.route('/api/photon/generate-jwt', methods=['POST'])

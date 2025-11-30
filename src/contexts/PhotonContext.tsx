@@ -151,21 +151,45 @@ export const PhotonProvider: React.FC<PhotonProviderProps> = ({ children }) => {
     campaignId: string,
     metadata?: Record<string, any>
   ) => {
-    if (!isPhotonRegistered || !photonUser || !photonTokens) {
+    // Check both state and localStorage (for immediate availability after registration)
+    const storedUser = localStorage.getItem('photon_user')
+    const storedTokens = localStorage.getItem('photon_tokens')
+    
+    const hasPhotonData = (isPhotonRegistered && photonUser && photonTokens) || 
+                         (storedUser && storedTokens)
+    
+    if (!hasPhotonData) {
       console.warn('⚠️ Photon not registered or missing tokens, skipping rewarded event')
       return
     }
 
     try {
+      // Use state if available, otherwise parse from localStorage
+      let userId: string
+      let accessToken: string
+      
+      if (photonUser && photonTokens) {
+        userId = photonUser.id
+        accessToken = photonTokens.access_token
+      } else if (storedUser && storedTokens) {
+        const user = JSON.parse(storedUser)
+        const tokens = JSON.parse(storedTokens)
+        userId = user.id
+        accessToken = tokens.access_token
+      } else {
+        console.warn('⚠️ Could not get Photon user/token data')
+        return
+      }
+      
       const eventId = `${eventType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       
       // Use Photon user_id and access_token from registration
       await triggerRewardedEvent(
         eventId, 
         eventType, 
-        photonUser.id, // Photon user_id (not client_user_id)
+        userId, // Photon user_id (not client_user_id)
         campaignId,
-        photonTokens.access_token, // Access token from registration
+        accessToken, // Access token from registration
         metadata
       )
     } catch (error) {
@@ -179,21 +203,45 @@ export const PhotonProvider: React.FC<PhotonProviderProps> = ({ children }) => {
     campaignId: string,
     metadata?: Record<string, any>
   ) => {
-    if (!isPhotonRegistered || !photonUser || !photonTokens) {
+    // Check both state and localStorage (for immediate availability after registration)
+    const storedUser = localStorage.getItem('photon_user')
+    const storedTokens = localStorage.getItem('photon_tokens')
+    
+    const hasPhotonData = (isPhotonRegistered && photonUser && photonTokens) || 
+                         (storedUser && storedTokens)
+    
+    if (!hasPhotonData) {
       console.warn('⚠️ Photon not registered or missing tokens, skipping unrewarded event')
       return
     }
 
     try {
+      // Use state if available, otherwise parse from localStorage
+      let userId: string
+      let accessToken: string
+      
+      if (photonUser && photonTokens) {
+        userId = photonUser.id
+        accessToken = photonTokens.access_token
+      } else if (storedUser && storedTokens) {
+        const user = JSON.parse(storedUser)
+        const tokens = JSON.parse(storedTokens)
+        userId = user.id
+        accessToken = tokens.access_token
+      } else {
+        console.warn('⚠️ Could not get Photon user/token data')
+        return
+      }
+      
       const eventId = `${eventType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       
       // Use Photon user_id and access_token from registration
       await triggerUnrewardedEvent(
         eventId, 
         eventType, 
-        photonUser.id, // Photon user_id (not client_user_id)
+        userId, // Photon user_id (not client_user_id)
         campaignId,
-        photonTokens.access_token, // Access token from registration
+        accessToken, // Access token from registration
         metadata
       )
     } catch (error) {

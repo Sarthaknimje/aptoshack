@@ -41,6 +41,7 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
   const navigate = useNavigate()
   const [hasAccess, setHasAccess] = useState(false)
   const [isChecking, setIsChecking] = useState(true)
+  const [lastContentViewTime, setLastContentViewTime] = useState<number>(0)
   const [contentBlob, setContentBlob] = useState<Blob | null>(null)
   const [contentUrl, setContentUrl] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -128,14 +129,21 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
 
       // If user has access, get secure access token and load premium content
       if (access && premiumContentUrl) {
-        // Track content view with Photon (unrewarded event)
-        try {
-          const contentId = tokenData.content_id || tokenData.token_id || 'unknown'
-          trackContentView(contentId).catch(err => {
-            console.warn('⚠️ Photon content view tracking failed (non-critical):', err)
-          })
-        } catch (photonError) {
-          // Non-critical, continue
+        // Track content view with Photon (unrewarded event) - debounced to avoid rate limits
+        const now = Date.now()
+        const timeSinceLastView = now - lastContentViewTime
+        
+        // Only track if at least 5 seconds have passed since last view (avoid rate limits)
+        if (timeSinceLastView > 5000) {
+          try {
+            const contentId = tokenData.content_id || tokenData.token_id || 'unknown'
+            setLastContentViewTime(now)
+            trackContentView(contentId).catch(err => {
+              console.warn('⚠️ Photon content view tracking failed (non-critical):', err)
+            })
+          } catch (photonError) {
+            // Non-critical, continue
+          }
         }
         try {
           // Get secure access token from backend (time-limited, verified)
