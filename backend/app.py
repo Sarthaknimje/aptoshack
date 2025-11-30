@@ -5777,35 +5777,107 @@ def shelby_account_balance():
             }), 200  # Return 200 but with error flag
         
         output = result.stdout
+        logger.info(f"Shelby balance command output:\n{output}")
         
-        # Parse APT balance
+        # Parse APT balance - look for pattern like "29.989454 APT" in the table
         apt_balance = 0
-        apt_match = re.search(r'APT[:\s]+([\d.]+)', output, re.IGNORECASE)
-        if apt_match:
-            apt_balance = float(apt_match.group(1))
+        # Try multiple patterns to match the table format
+        apt_patterns = [
+            r'APT\s+\│\s+[^\│]+\│\s+([\d.]+)\s+APT',  # Table format: APT | ... | 29.989454 APT
+            r'│\s+APT\s+│[^\│]+\│\s+([\d.]+)\s+APT',  # Alternative table format
+            r'APT[:\s]+([\d.]+)\s+APT',  # Simple format
+            r'Balance[^\n]*\n[^\n]*\n[^\n]*APT[^\n]*([\d.]+)',  # Multi-line format
+        ]
         
-        # Parse ShelbyUSD balance
+        for pattern in apt_patterns:
+            apt_match = re.search(pattern, output, re.IGNORECASE | re.MULTILINE)
+            if apt_match:
+                try:
+                    apt_balance = float(apt_match.group(1))
+                    logger.info(f"✅ Parsed APT balance: {apt_balance}")
+                    break
+                except ValueError:
+                    continue
+        
+        # Parse ShelbyUSD balance - look for pattern in the table
         shelbyusd_balance = 0
-        usd_match = re.search(r'ShelbyUSD[:\s]+([\d.]+)', output, re.IGNORECASE)
-        if usd_match:
-            shelbyusd_balance = float(usd_match.group(1))
+        # Try multiple patterns
+        usd_patterns = [
+            r'ShelbyU[^\n]*\n[^\│]*\│\s+([\d.]+)\s+ShelbyUSD',  # Table format with line break
+            r'│\s+ShelbyU[^\│]+\│\s+([\d.]+)\s+ShelbyUSD',  # Table format
+            r'ShelbyUSD[:\s]+([\d.]+)',  # Simple format
+            r'([\d.]+)\s+ShelbyUSD',  # Just number before ShelbyUSD
+        ]
         
-        # Get account address
+        for pattern in usd_patterns:
+            usd_match = re.search(pattern, output, re.IGNORECASE | re.MULTILINE)
+            if usd_match:
+                try:
+                    shelbyusd_balance = float(usd_match.group(1))
+                    logger.info(f"✅ Parsed ShelbyUSD balance: {shelbyusd_balance}")
+                    break
+                except ValueError:
+                    continue
+        
+        # If still not found, try parsing the table rows directly
+        if apt_balance == 0 or shelbyusd_balance == 0:
+            # Look for table rows
+            lines = output.split('\n')
+            for i, line in enumerate(lines):
+                # APT row
+                if '│ APT' in line or '│ APT     │' in line:
+                    # Next line should have the balance
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1]
+                        apt_match = re.search(r'│\s+([\d.]+)\s+APT', next_line)
+                        if apt_match:
+                            try:
+                                apt_balance = float(apt_match.group(1))
+                                logger.info(f"✅ Parsed APT balance from table: {apt_balance}")
+                            except ValueError:
+                                pass
+                
+                # ShelbyUSD row
+                if '│ ShelbyU' in line or 'ShelbyUSD' in line:
+                    # Look in the same line or next line
+                    usd_match = re.search(r'│\s+([\d.]+)\s+ShelbyUSD', line)
+                    if not usd_match and i + 1 < len(lines):
+                        usd_match = re.search(r'│\s+([\d.]+)\s+ShelbyUSD', lines[i + 1])
+                    if usd_match:
+                        try:
+                            shelbyusd_balance = float(usd_match.group(1))
+                            logger.info(f"✅ Parsed ShelbyUSD balance from table: {shelbyusd_balance}")
+                        except ValueError:
+                            pass
+        
+        # Get account address from balance output or account list
         account_address = None
-        try:
-            account_result = subprocess.run(
-                ['shelby', 'account', 'list'],
-                capture_output=True,
-                text=True,
-                timeout=10
-            )
-            if account_result.returncode == 0:
-                # Parse default account address
-                match = re.search(r'default.*?│\s*(0x[a-f0-9]{64})', account_result.stdout)
-                if match:
-                    account_address = match.group(1)
-        except:
-            pass
+        # Try to extract from balance output first
+        address_match = re.search(r'Address:\s+(0x[a-f0-9]{64})', output)
+        if address_match:
+            account_address = address_match.group(1)
+            logger.info(f"✅ Extracted account address from balance output: {account_address[:10]}...")
+        else:
+            # Fallback to account list
+            try:
+                account_result = subprocess.run(
+                    ['shelby', 'account', 'list'],
+                    capture_output=True,
+                    text=True,
+                    timeout=10
+                )
+                if account_result.returncode == 0:
+                    # Parse default account address
+                    match = re.search(r'default.*?│\s*(0x[a-f0-9]{64})', account_result.stdout)
+                    if not match:
+                        # Try alternative format
+                        match = re.search(r'Address:\s+(0x[a-f0-9]{64})', account_result.stdout)
+                    if match:
+                        account_address = match.group(1)
+                        logger.info(f"✅ Extracted account address from account list: {account_address[:10]}...")
+            except Exception as e:
+                logger.warning(f"Could not get account address: {e}")
+                pass
         
         return jsonify({
             "success": True,
