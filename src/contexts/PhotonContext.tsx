@@ -244,8 +244,11 @@ export const PhotonProvider: React.FC<PhotonProviderProps> = ({ children }) => {
         accessToken, // Access token from registration
         metadata
       )
-    } catch (error) {
-      console.error('❌ Error tracking unrewarded event:', error)
+    } catch (error: any) {
+      // Don't log rate limit errors (429) - they're handled gracefully
+      if (!error?.message?.includes('429')) {
+        console.error('❌ Error tracking unrewarded event:', error)
+      }
     }
   }
 

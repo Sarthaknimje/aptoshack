@@ -3797,6 +3797,7 @@ def get_user_balance_cache():
     Get cached user token balance from database (instant, no API calls)
     Used for fast UI updates after trades
     """
+    conn = None
     try:
         user_address = request.args.get('userAddress')
         token_id = request.args.get('tokenId')
@@ -3809,17 +3810,21 @@ def get_user_balance_cache():
         cursor = conn.cursor()
         
         # Ensure user_balances table exists
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS user_balances (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_address TEXT NOT NULL,
-                token_id TEXT NOT NULL,
-                creator_address TEXT NOT NULL,
-                balance REAL NOT NULL DEFAULT 0,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(user_address, token_id, creator_address)
-            )
-        ''')
+        try:
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS user_balances (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_address TEXT NOT NULL,
+                    token_id TEXT NOT NULL,
+                    creator_address TEXT NOT NULL,
+                    balance REAL NOT NULL DEFAULT 0,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(user_address, token_id, creator_address)
+                )
+            ''')
+            conn.commit()
+        except sqlite3.Error as table_error:
+            logger.warning(f"Table creation warning (may already exist): {table_error}")
         
         # Get cached balance
         cursor.execute('''
@@ -3828,28 +3833,50 @@ def get_user_balance_cache():
         ''', (user_address, str(token_id), creator_address))
         
         row = cursor.fetchone()
-        conn.close()
         
         if row:
             balance, updated_at = row
-            return jsonify({
+            result = {
                 "success": True,
                 "balance": balance,
                 "updated_at": updated_at,
                 "cached": True
-            })
+            }
         else:
             # No cache found - return 0
-            return jsonify({
+            result = {
                 "success": True,
                 "balance": 0,
                 "cached": False
-            })
+            }
+        
+        return jsonify(result)
+    except sqlite3.Error as db_error:
+        logger.error(f"Database error getting cached balance: {db_error}")
+        # Return 0 balance on database error (non-critical)
+        return jsonify({
+            "success": True,
+            "balance": 0,
+            "cached": False,
+            "error": "Database error, using default"
+        }), 200
     except Exception as e:
         logger.error(f"Error getting cached balance: {e}")
         import traceback
         logger.error(traceback.format_exc())
-        return jsonify({"success": False, "error": str(e)}), 500
+        # Return 0 balance on error (non-critical)
+        return jsonify({
+            "success": True,
+            "balance": 0,
+            "cached": False,
+            "error": str(e)
+        }), 200
+    finally:
+        if conn:
+            try:
+                conn.close()
+            except:
+                pass
 
 @app.route('/api/photon/generate-jwt', methods=['POST'])
 @cross_origin(supports_credentials=True)

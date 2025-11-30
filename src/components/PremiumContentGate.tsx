@@ -133,13 +133,16 @@ const PremiumContentGate: React.FC<PremiumContentGateProps> = ({
         const now = Date.now()
         const timeSinceLastView = now - lastContentViewTime
         
-        // Only track if at least 5 seconds have passed since last view (avoid rate limits)
-        if (timeSinceLastView > 5000) {
+        // Only track if at least 15 seconds have passed since last view (avoid rate limits)
+        if (timeSinceLastView > 15000) {
           try {
             const contentId = tokenData.content_id || tokenData.token_id || 'unknown'
             setLastContentViewTime(now)
             trackContentView(contentId).catch(err => {
-              console.warn('⚠️ Photon content view tracking failed (non-critical):', err)
+              // Silently fail - rate limits are expected
+              if (!err.message?.includes('429')) {
+                console.warn('⚠️ Photon content view tracking failed (non-critical):', err)
+              }
             })
           } catch (photonError) {
             // Non-critical, continue

@@ -192,6 +192,18 @@ export async function triggerUnrewardedEvent(
 
     if (!response.ok) {
       const errorText = await response.text()
+      // Handle rate limits gracefully (429)
+      if (response.status === 429) {
+        console.warn(`⚠️ Photon rate limit (429) for event: ${eventType}. Skipping.`)
+        // Return a success response with 0 tokens to avoid breaking the flow
+        return {
+          success: true,
+          event_id: eventId,
+          token_amount: 0,
+          token_symbol: 'PHOTON',
+          campaign_id: campaignId
+        }
+      }
       throw new Error(`Unrewarded event failed: ${response.status} ${errorText}`)
     }
 
