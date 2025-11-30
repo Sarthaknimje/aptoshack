@@ -54,25 +54,49 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
 
   // Check premium access for premium posts
   useEffect(() => {
-    if (post.isPremium && isConnected && address && post.tokenId) {
-      setCheckingAccess(true)
-      checkPremiumAccess(
-        address,
-        post.creatorAddress,
-        post.tokenId,
-        post.minimumBalance || 1
-      )
-        .then(access => {
-          setHasPremiumAccess(access)
-          setCheckingAccess(false)
-        })
-        .catch(() => {
-          setHasPremiumAccess(false)
-          setCheckingAccess(false)
-        })
-    } else {
-      setHasPremiumAccess(true) // Free posts always have access
-      setCheckingAccess(false)
+    const checkAccess = () => {
+      if (post.isPremium && isConnected && address && post.tokenId) {
+        setCheckingAccess(true)
+        checkPremiumAccess(
+          address,
+          post.creatorAddress,
+          post.tokenId,
+          post.minimumBalance || 1
+        )
+          .then(access => {
+            setHasPremiumAccess(access)
+            setCheckingAccess(false)
+          })
+          .catch(() => {
+            setHasPremiumAccess(false)
+            setCheckingAccess(false)
+          })
+      } else {
+        setHasPremiumAccess(true) // Free posts always have access
+        setCheckingAccess(false)
+      }
+    }
+
+    checkAccess()
+
+    // Listen for token balance updates (after buy/sell)
+    const handleTokenBalanceUpdate = () => {
+      if (post.isPremium) {
+        console.log('🔄 Token balance updated, rechecking premium access...')
+        checkAccess()
+      }
+    }
+    window.addEventListener('tokenBalanceUpdated', handleTokenBalanceUpdate)
+
+    // Periodic refresh for premium posts
+    let interval: NodeJS.Timeout | null = null
+    if (post.isPremium && isConnected && address) {
+      interval = setInterval(checkAccess, 10000) // Check every 10 seconds
+    }
+
+    return () => {
+      window.removeEventListener('tokenBalanceUpdated', handleTokenBalanceUpdate)
+      if (interval) clearInterval(interval)
     }
   }, [post.isPremium, post.tokenId, post.creatorAddress, post.minimumBalance, isConnected, address])
 
