@@ -613,6 +613,59 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+            onClick={() => setShowDeleteConfirm(false)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, y: 20 }}
+              animate={{ scale: 1, y: 0 }}
+              exit={{ scale: 0.95, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              className="bg-white rounded-xl p-6 max-w-md w-full shadow-xl"
+            >
+              <h3 className="text-xl font-bold text-gray-900 mb-2">Delete Post?</h3>
+              <p className="text-gray-600 mb-6">
+                This action cannot be undone. The post will be permanently deleted.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={async () => {
+                    if (!address) return
+                    setDeleting(true)
+                    const result = await deletePost(post.postId, address)
+                    if (result.success) {
+                      window.location.reload()
+                    } else {
+                      alert(result.error || 'Failed to delete post')
+                      setDeleting(false)
+                      setShowDeleteConfirm(false)
+                    }
+                  }}
+                  disabled={deleting}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg font-semibold hover:bg-red-700 disabled:opacity-50 transition-colors"
+                >
+                  {deleting ? 'Deleting...' : 'Delete'}
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  disabled={deleting}
+                  className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }
