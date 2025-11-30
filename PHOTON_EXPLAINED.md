@@ -206,20 +206,22 @@ Here's how it works:
 ### ✅ **What's Working:**
 - ✅ User registration with Photon
 - ✅ Automatic wallet creation
-- ✅ Rewarded events: Token Purchase, Token Sell
-- ✅ Unrewarded events: Content View, Token Creation
+- ✅ Rewarded events: Token Purchase, Token Sell, Token Creation
+- ✅ Unrewarded events: Content View, Login
 - ✅ Event logging in status widget
 - ✅ Real-time reward tracking
+- ✅ External links to Photon dashboard and API
 
 ### 🔄 **What's Being Tracked:**
-- **Rewarded**: Token purchases, Token sells
-- **Unrewarded**: Content views, Token creation
+- **Rewarded**: Token purchases, Token sells, Token creation
+- **Unrewarded**: Content views, Login
 
 ### 📊 **Event Types:**
 - `token_purchase` → Rewarded (PAT tokens)
 - `token_sell` → Rewarded (PAT tokens)
+- `create_token` → Rewarded (PAT tokens)
 - `view_content` → Unrewarded (0 tokens, just tracking)
-- `create_token` → Unrewarded (0 tokens, just tracking)
+- `login` → Unrewarded (0 tokens, just tracking)
 
 ---
 
