@@ -257,18 +257,29 @@ const PhotonStatus: React.FC = () => {
                                   <Activity className="w-3 h-3 text-blue-400" />
                                 )}
                                 <span className="font-medium text-white">{log.eventType}</span>
+                                <span className={`text-[10px] px-1 py-0.5 rounded ${
+                                  log.type === 'rewarded' 
+                                    ? 'bg-yellow-900/50 text-yellow-300' 
+                                    : 'bg-blue-900/50 text-blue-300'
+                                }`}>
+                                  {log.type === 'rewarded' ? 'Rewarded' : 'Tracked'}
+                                </span>
                               </div>
-                              {log.tokenAmount !== undefined && (
+                              {log.tokenAmount !== undefined && log.tokenAmount > 0 ? (
                                 <span className="text-yellow-400 font-medium">
                                   +{log.tokenAmount} PAT
                                 </span>
+                              ) : log.type === 'rewarded' ? (
+                                <span className="text-gray-500 text-[10px]">0 PAT</span>
+                              ) : (
+                                <span className="text-gray-500 text-[10px]">No reward</span>
                               )}
                             </div>
-                            <div className="text-gray-400">
-                              {log.timestamp.toLocaleTimeString()}
+                            <div className="text-gray-400 text-[10px]">
+                              {log.timestamp.toLocaleTimeString()} • {log.timestamp.toLocaleDateString()}
                             </div>
                             {log.error && (
-                              <div className="text-red-400 mt-1">{log.error}</div>
+                              <div className="text-red-400 mt-1 text-[10px]">{log.error}</div>
                             )}
                           </div>
                         ))
@@ -276,6 +287,30 @@ const PhotonStatus: React.FC = () => {
                     </motion.div>
                   )}
                 </AnimatePresence>
+
+                {/* Activity Types Info */}
+                <div className="bg-blue-900/30 border border-blue-700/50 rounded p-3">
+                  <div className="text-xs font-semibold text-blue-300 mb-2 flex items-center gap-1">
+                    <Activity className="w-3 h-3" />
+                    Tracked Activities
+                  </div>
+                  <div className="space-y-2 text-xs">
+                    <div>
+                      <div className="text-yellow-400 font-medium mb-1">💰 Rewarded (Get PAT Tokens):</div>
+                      <div className="text-gray-300 space-y-0.5 ml-2">
+                        <div>• Token Purchase → PAT tokens</div>
+                        <div>• Token Sell → PAT tokens</div>
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-blue-400 font-medium mb-1">📊 Unrewarded (Tracking Only):</div>
+                      <div className="text-gray-300 space-y-0.5 ml-2">
+                        <div>• Content View → 0 tokens</div>
+                        <div>• Token Creation → 0 tokens</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Quick Stats */}
                 {recentEvents.length > 0 && (
@@ -291,8 +326,12 @@ const PhotonStatus: React.FC = () => {
                             ) : (
                               <XCircle className="w-3 h-3 text-red-400" />
                             )}
-                            {log.tokenAmount && (
-                              <span className="text-yellow-400">+{log.tokenAmount} PAT</span>
+                            {log.tokenAmount !== undefined && log.tokenAmount > 0 ? (
+                              <span className="text-yellow-400 font-medium">+{log.tokenAmount} PAT</span>
+                            ) : log.type === 'rewarded' ? (
+                              <span className="text-gray-500 text-[10px]">0 PAT</span>
+                            ) : (
+                              <span className="text-gray-500 text-[10px]">Tracked</span>
                             )}
                           </div>
                         </div>
