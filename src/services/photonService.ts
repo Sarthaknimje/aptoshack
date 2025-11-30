@@ -5,7 +5,8 @@
  */
 
 const PHOTON_API_BASE = 'https://stage-api.getstan.app/identity-service/api/v1'
-const PHOTON_API_KEY = process.env.REACT_APP_PHOTON_API_KEY || '' // Set in .env
+const PHOTON_API_KEY = process.env.REACT_APP_PHOTON_API_KEY || '7bc5d06eb53ad73716104742c7e8a5377da9fe8156378dcfebfb8253da4e8800' // Default hackathon key
+const PHOTON_CAMPAIGN_ID = process.env.REACT_APP_PHOTON_CAMPAIGN_ID || 'ea3bcaca-9ce4-4b54-b803-8b9be1f142ba' // Default campaign ID
 
 export interface PhotonUser {
   id: string
@@ -14,7 +15,7 @@ export interface PhotonUser {
 }
 
 export interface PhotonWallet {
-  photonUserId: string
+  photonUserId?: string
   walletAddress: string
 }
 
@@ -81,8 +82,7 @@ export async function registerPhotonUser(
       body: JSON.stringify({
         provider: 'jwt',
         data: {
-          token: jwtToken,
-          client_user_id: clientUserId
+          token: jwtToken
         }
       })
     })
@@ -104,12 +104,14 @@ export async function registerPhotonUser(
 /**
  * Trigger a rewarded campaign event
  * Photon will mint and deposit PAT tokens to user's wallet
+ * Requires access_token from Photon registration
  */
 export async function triggerRewardedEvent(
   eventId: string,
   eventType: string,
-  clientUserId: string,
+  userId: string, // Photon user_id (not client_user_id)
   campaignId: string,
+  accessToken: string, // Photon access token from registration
   metadata?: Record<string, any>
 ): Promise<CampaignEventResponse> {
   try {
@@ -117,12 +119,13 @@ export async function triggerRewardedEvent(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': PHOTON_API_KEY
+        'X-Api-Key': PHOTON_API_KEY, // Note: X-Api-Key (not X-API-Key)
+        'Authorization': `Bearer ${accessToken}`
       },
       body: JSON.stringify({
         event_id: eventId,
         event_type: eventType,
-        client_user_id: clientUserId,
+        user_id: userId, // Use user_id (Photon user ID), not client_user_id
         campaign_id: campaignId,
         metadata: metadata || {},
         timestamp: new Date().toISOString()
@@ -146,12 +149,14 @@ export async function triggerRewardedEvent(
 /**
  * Trigger an unrewarded campaign event
  * Updates user profile but issues 0 PAT tokens
+ * Requires access_token from Photon registration
  */
 export async function triggerUnrewardedEvent(
   eventId: string,
   eventType: string,
-  clientUserId: string,
+  userId: string, // Photon user_id (not client_user_id)
   campaignId: string,
+  accessToken: string, // Photon access token from registration
   metadata?: Record<string, any>
 ): Promise<CampaignEventResponse> {
   try {
@@ -159,12 +164,13 @@ export async function triggerUnrewardedEvent(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-API-Key': PHOTON_API_KEY
+        'X-Api-Key': PHOTON_API_KEY, // Note: X-Api-Key (not X-API-Key)
+        'Authorization': `Bearer ${accessToken}`
       },
       body: JSON.stringify({
         event_id: eventId,
         event_type: eventType,
-        client_user_id: clientUserId,
+        user_id: userId, // Use user_id (Photon user ID), not client_user_id
         campaign_id: campaignId,
         metadata: metadata || {},
         timestamp: new Date().toISOString()
@@ -246,18 +252,21 @@ export async function generatePhotonJWT(
  * Campaign IDs for Creator Coin platform
  */
 export const PHOTON_CAMPAIGNS = {
-  // Rewarded events
-  TOKEN_PURCHASE: 'token_purchase_campaign', // Reward for buying creator tokens
-  TOKEN_SELL: 'token_sell_campaign', // Reward for selling tokens
-  FIRST_TRADE: 'first_trade_campaign', // Reward for first trade
-  DAILY_TRADE: 'daily_trade_campaign', // Reward for daily trading
-  REFERRAL: 'referral_campaign', // Reward for referrals
+  // Default campaign (can be used for all events)
+  DEFAULT: PHOTON_CAMPAIGN_ID, // 'ea3bcaca-9ce4-4b54-b803-8b9be1f142ba'
   
-  // Unrewarded events
-  LOGIN: 'login_campaign', // Track login
-  VIEW_CONTENT: 'view_content_campaign', // Track content views
-  SHARE_TOKEN: 'share_token_campaign', // Track token sharing
-  CREATE_TOKEN: 'create_token_campaign', // Track token creation
+  // Rewarded events - all use the same campaign ID
+  TOKEN_PURCHASE: PHOTON_CAMPAIGN_ID, // Reward for buying creator tokens
+  TOKEN_SELL: PHOTON_CAMPAIGN_ID, // Reward for selling tokens
+  FIRST_TRADE: PHOTON_CAMPAIGN_ID, // Reward for first trade
+  DAILY_TRADE: PHOTON_CAMPAIGN_ID, // Reward for daily trading
+  REFERRAL: PHOTON_CAMPAIGN_ID, // Reward for referrals
+  
+  // Unrewarded events - all use the same campaign ID
+  LOGIN: PHOTON_CAMPAIGN_ID, // Track login
+  VIEW_CONTENT: PHOTON_CAMPAIGN_ID, // Track content views
+  SHARE_TOKEN: PHOTON_CAMPAIGN_ID, // Track token sharing
+  CREATE_TOKEN: PHOTON_CAMPAIGN_ID, // Track token creation
 } as const
 
 /**

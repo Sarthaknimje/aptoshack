@@ -95,20 +95,30 @@ export const PhotonProvider: React.FC<PhotonProviderProps> = ({ children }) => {
       const jwtToken = await generatePhotonJWT(clientUserId, email, name)
       
       // Register with Photon
-      const response = await registerPhotonUser(jwtToken, clientUserId)
+      const response = await registerPhotonUser(jwtToken)
       
       if (response.success && response.data) {
         setPhotonUser(response.data.user.user)
-        setPhotonWallet(response.data.wallet)
+        // Map wallet response to our interface
+        setPhotonWallet({
+          photonUserId: response.data.user.user.id,
+          walletAddress: response.data.wallet.walletAddress
+        })
         setPhotonTokens(response.data.tokens)
         setIsPhotonRegistered(true)
         
         // Store in localStorage
         localStorage.setItem('photon_user', JSON.stringify(response.data.user.user))
-        localStorage.setItem('photon_wallet', JSON.stringify(response.data.wallet))
+        localStorage.setItem('photon_wallet', JSON.stringify({
+          photonUserId: response.data.user.user.id,
+          walletAddress: response.data.wallet.walletAddress
+        }))
         localStorage.setItem('photon_tokens', JSON.stringify(response.data.tokens))
         
         console.log('✅ Photon registration successful:', response.data)
+        console.log('✅ Photon User ID:', response.data.user.user.id)
+        console.log('✅ Photon Wallet:', response.data.wallet.walletAddress)
+        console.log('✅ Access Token:', response.data.tokens.access_token.substring(0, 20) + '...')
       }
     } catch (error) {
       console.error('❌ Error registering with Photon:', error)
@@ -124,16 +134,23 @@ export const PhotonProvider: React.FC<PhotonProviderProps> = ({ children }) => {
     campaignId: string,
     metadata?: Record<string, any>
   ) => {
-    if (!isPhotonRegistered) {
-      console.warn('⚠️ Photon not registered, skipping rewarded event')
+    if (!isPhotonRegistered || !photonUser || !photonTokens) {
+      console.warn('⚠️ Photon not registered or missing tokens, skipping rewarded event')
       return
     }
 
     try {
-      const clientUserId = getClientUserId()
       const eventId = `${eventType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       
-      await triggerRewardedEvent(eventId, eventType, clientUserId, campaignId, metadata)
+      // Use Photon user_id and access_token from registration
+      await triggerRewardedEvent(
+        eventId, 
+        eventType, 
+        photonUser.id, // Photon user_id (not client_user_id)
+        campaignId,
+        photonTokens.access_token, // Access token from registration
+        metadata
+      )
     } catch (error) {
       console.error('❌ Error tracking rewarded event:', error)
     }
@@ -145,16 +162,23 @@ export const PhotonProvider: React.FC<PhotonProviderProps> = ({ children }) => {
     campaignId: string,
     metadata?: Record<string, any>
   ) => {
-    if (!isPhotonRegistered) {
-      console.warn('⚠️ Photon not registered, skipping unrewarded event')
+    if (!isPhotonRegistered || !photonUser || !photonTokens) {
+      console.warn('⚠️ Photon not registered or missing tokens, skipping unrewarded event')
       return
     }
 
     try {
-      const clientUserId = getClientUserId()
       const eventId = `${eventType}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
       
-      await triggerUnrewardedEvent(eventId, eventType, clientUserId, campaignId, metadata)
+      // Use Photon user_id and access_token from registration
+      await triggerUnrewardedEvent(
+        eventId, 
+        eventType, 
+        photonUser.id, // Photon user_id (not client_user_id)
+        campaignId,
+        photonTokens.access_token, // Access token from registration
+        metadata
+      )
     } catch (error) {
       console.error('❌ Error tracking unrewarded event:', error)
     }
