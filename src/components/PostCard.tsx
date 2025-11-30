@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { Post, engageWithPost, getComments, createComment, Comment, deletePost } from '../services/postService'
 import PremiumContentGate from './PremiumContentGate'
 import { useWallet } from '../contexts/WalletContext'
+import { checkPremiumAccess } from '../services/shelbyService'
 import { 
   Heart, 
   MessageCircle, 
@@ -47,14 +48,40 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
   const [deleting, setDeleting] = useState(false)
   const [doubleTapTimeout, setDoubleTapTimeout] = useState<NodeJS.Timeout | null>(null)
   const [showHeartAnimation, setShowHeartAnimation] = useState(false)
+  const [hasPremiumAccess, setHasPremiumAccess] = useState(false)
+  const [checkingAccess, setCheckingAccess] = useState(true)
   const imageRef = useRef<HTMLDivElement>(null)
 
-  // Track view on mount
+  // Check premium access for premium posts
   useEffect(() => {
-    if (isConnected && address) {
+    if (post.isPremium && isConnected && address && post.tokenId) {
+      setCheckingAccess(true)
+      checkPremiumAccess(
+        address,
+        post.creatorAddress,
+        post.tokenId,
+        post.minimumBalance || 1
+      )
+        .then(access => {
+          setHasPremiumAccess(access)
+          setCheckingAccess(false)
+        })
+        .catch(() => {
+          setHasPremiumAccess(false)
+          setCheckingAccess(false)
+        })
+    } else {
+      setHasPremiumAccess(true) // Free posts always have access
+      setCheckingAccess(false)
+    }
+  }, [post.isPremium, post.tokenId, post.creatorAddress, post.minimumBalance, isConnected, address])
+
+  // Track view on mount (only if has access)
+  useEffect(() => {
+    if (isConnected && address && (hasPremiumAccess || !post.isPremium)) {
       engageWithPost(post.postId, address, 'view').catch(() => {})
     }
-  }, [post.postId, isConnected, address])
+  }, [post.postId, isConnected, address, hasPremiumAccess, post.isPremium])
 
   // Double tap to like
   const handleDoubleTap = () => {
@@ -330,9 +357,29 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
       ) : (
         // Text-only post
         post.contentType === 'text' && (
-          <div className="px-4 py-3">
-            <p className="text-gray-900 whitespace-pre-wrap">{post.description}</p>
-          </div>
+          post.isPremium && !hasPremiumAccess ? (
+            // Premium text post - show "Invest to see"
+            <div className="px-4 py-8 bg-gradient-to-r from-purple-50 to-violet-50 border-y border-purple-200">
+              <div className="text-center">
+                <Lock className="w-12 h-12 text-purple-600 mx-auto mb-3" />
+                <h3 className="text-lg font-bold text-purple-900 mb-2">Invest to See</h3>
+                <p className="text-sm text-purple-700 mb-4">
+                  This content is token-gated. Hold {post.minimumBalance || 1} {post.tokenSymbol || 'Creator Coin'} to unlock.
+                </p>
+                <button
+                  onClick={handleInvest}
+                  className="px-6 py-2 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 text-white rounded-lg font-semibold hover:shadow-lg transition-all"
+                >
+                  Invest to See →
+                </button>
+              </div>
+            </div>
+          ) : (
+            // Free text post or premium with access
+            <div className="px-4 py-3">
+              <p className="text-gray-900 whitespace-pre-wrap">{post.description}</p>
+            </div>
+          )
         )
       )}
 
@@ -407,19 +454,40 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
           </div>
         )}
 
-        {/* Caption */}
-        <div className="mb-1">
-          <span className="font-semibold text-sm text-gray-900 mr-2">{formatAddress(post.creatorAddress)}</span>
-          {post.title && (
-            <span className="text-sm text-gray-900">{post.title}</span>
-          )}
-          {post.description && (
-            <span className="text-sm text-gray-900"> {post.description}</span>
-          )}
-        </div>
+        {/* Caption - Only show if not premium or has access */}
+        {(!post.isPremium || hasPremiumAccess) && (
+          <div className="mb-1">
+            <span className="font-semibold text-sm text-gray-900 mr-2">{formatAddress(post.creatorAddress)}</span>
+            {post.title && (
+              <span className="text-sm text-gray-900">{post.title}</span>
+            )}
+            {post.description && (
+              <span className="text-sm text-gray-900"> {post.description}</span>
+            )}
+          </div>
+        )}
+        
+        {/* Premium Lock Message - Show if premium and no access */}
+        {post.isPremium && !hasPremiumAccess && !checkingAccess && (
+          <div className="mb-3 p-4 bg-gradient-to-r from-purple-50 to-violet-50 border border-purple-200 rounded-lg">
+            <div className="flex items-center gap-2 mb-2">
+              <Lock className="w-4 h-4 text-purple-600" />
+              <span className="text-sm font-semibold text-purple-900">Premium Content</span>
+            </div>
+            <p className="text-xs text-purple-700 mb-3">
+              Invest in {post.tokenSymbol || 'Creator Coin'} to unlock this content
+            </p>
+            <button
+              onClick={handleInvest}
+              className="w-full px-4 py-2 bg-gradient-to-r from-purple-600 via-violet-600 to-amber-500 text-white rounded-lg font-semibold text-sm hover:shadow-lg transition-all"
+            >
+              Invest to See →
+            </button>
+          </div>
+        )}
 
-        {/* View Comments Link */}
-        {post.commentsCount > 0 && (
+        {/* View Comments Link - Only show if has access */}
+        {(!post.isPremium || hasPremiumAccess) && post.commentsCount > 0 && (
           <button
             onClick={handleShowComments}
             className="text-gray-500 text-sm mb-2 hover:text-gray-700 transition-colors"
@@ -428,25 +496,27 @@ const PostCard: React.FC<PostCardProps> = ({ post }) => {
           </button>
         )}
 
-        {/* Token Price & Invest */}
-        <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
-          <div className="flex items-center gap-2">
-            <Coins className="w-4 h-4 text-amber-500" />
-            <span className="text-xs text-gray-600">${post.tokenPrice.toFixed(6)}</span>
-            {post.tokenPrice > 0 && (
-              <TrendingUp className="w-3 h-3 text-green-500" />
-            )}
+        {/* Token Price & Invest - Always show for premium posts, or if not premium */}
+        {(!post.isPremium || !hasPremiumAccess) && (
+          <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-100">
+            <div className="flex items-center gap-2">
+              <Coins className="w-4 h-4 text-amber-500" />
+              <span className="text-xs text-gray-600">${(post.tokenPrice || 0).toFixed(6)}</span>
+              {post.tokenPrice > 0 && (
+                <TrendingUp className="w-3 h-3 text-green-500" />
+              )}
+            </div>
+            <button
+              onClick={handleInvest}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              Invest →
+            </button>
           </div>
-          <button
-            onClick={handleInvest}
-            className="text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
-          >
-            Invest →
-          </button>
-        </div>
+        )}
 
-        {/* Shelby Explorer Link */}
-        {post.shelbyBlobId && (
+        {/* Shelby Explorer Link - Only show if has access */}
+        {(!post.isPremium || hasPremiumAccess) && post.shelbyBlobId && (
           <div className="mt-2 pt-2 border-t border-gray-100">
             <a
               href={`https://explorer.shelbynet.shelby.xyz/blob/${post.shelbyBlobId}`}
